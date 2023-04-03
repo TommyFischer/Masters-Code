@@ -1,0 +1,170 @@
+using PlotlyJS,
+    SparseArrays,
+    StaticArrays,
+    LinearAlgebra,
+    DifferentialEquations,
+    FFTW,
+    LaTeXStrings,
+    Plots,
+    WAV,
+    JLD2,
+    Makie, 
+    GLMakie,
+    BenchmarkTools
+
+
+aaaa = collect(LinRange(0,2,10))  
+AAAA = SVector{10}(aaaa)
+
+BBBB = LinRange(0,20,100)
+bbbb = SVector{length(BBBB)}(collect(BBBB))
+
+StaticLinRange(start,stop,n) = SVector{n}(collect(LinRange(start,stop,n))) 
+StatConvert(vec) = collect(vec) |> SVector{length(vec)}
+
+
+
+g = StaticLinRange(0,10,20)
+
+
+begin # setting up variables for tests
+    function MakeArrays(Ls,Lz,M,Mz) # Makes position space and k-space arrays
+
+        global λ_x = 1 
+        global λ_y = ω_y/ω_x 
+        global λ_z = ω_z/ω_x
+
+        global xS = StaticLinRange(-(Ls-1)/2,(Ls-1)/2,M)
+        global yS = StaticLinRange(-(Ls-1)/2,(Ls-1)/2,M)'
+        global zS = reshape(StaticLinRange(-(Lz-1)/2,(Lz-1)/2,Mz),(1,1,Mz))
+
+        global dxS = xS[2] - xS[1]
+        global dyS = yS[2] - yS[1]
+        global dzS = zS[2] - zS[1]
+
+        global kxS = StatConvert(fftfreq(M,2π/dx))
+        global kyS = StatConvert(fftfreq(M,2π/dy))'
+        global kzS = reshape(StatConvert(fftfreq(Mz,2π/dz)),(1,1,Mz))
+
+        global k2S =  StatConvert(kxS.^2 .+ kyS.^2 .+ kzS.^2) # 3D wave vector
+        global dr = dx*dy*dz
+    end;
+
+    V(x,y,z) = 0.5*(λ_x^2*x.^2 .+ λ_y^2*y.^2 .+ λ_z^2*z.^2)
+    R(ω_i) = sqrt(2*ħ*ω_x*μ/(m*ω_i^2))/l
+
+    begin # Setup
+        ω_x = 100*2π
+        ω_y = sqrt(1.2)*ω_x
+        ω_z = sqrt(1.5)*ω_x
+    
+        ħ = 1.05457182e-34
+        m = 87*1.66e-27 # Rubidium-87 mass (need to check this is correct)
+        a_s = 5.8e-9 # Rubidium-87 scattering length (also check this)
+    
+        N = 3e5 # Number of atoms
+        l = sqrt(ħ/(m*ω_x)) # Characteristic lengthscale
+        g = 4π*ħ^2*a_s/m # Actual g value
+        G = g*(N*m/(ħ^2*l)) # 'Dimensionless' g value
+        
+        μ = 0.5*(m*(15*N*ω_z*a_s)^2/(ħ*ω_x))^0.2
+    end 
+    
+    begin
+        L = 2*(2*max(R(ω_x),R(ω_y),R(ω_z)))
+        Lz = L
+    
+        M = 50
+        Mz = 50
+
+        Ωz = 0.2
+        Ωx = 0
+        Ωy = 0
+    
+        MakeArrays(L,Lz,M,Mz)
+    end
+    
+    V_0 = V(x,y,z);
+    M,M,Mz
+
+end
+
+
+
+begin # Nonlinear term
+    
+    ############# Initial nonlinear term ###############################
+
+    function oldnlin!(dψ,ψ) # nlin with just z axis rotation
+        dψ .= ifft((0.5*kx.^2 .+ Ωz*y.*kx).*fft(ψ,1),1) 
+            .+ ifft((0.5*ky.^2 .- Ωz*x.*ky).*fft(ψ,2),2) 
+            .+ ifft(0.5*kz.^2 .*fft(ψ,3),3)
+    end
+
+    function nlin!(dψ,ψ,t) # Non-linear terms with rotation
+        a = sin(Ωy*t)*cos(Ωx*t)
+        b = sin(Ωx*t)
+        c = cos(Ωy*t)*cos(Ωx*t)
+        dψ .= ifft((0.5*kx.^2 .+ Ωz*kx.*(b*z .+ c*y)).*fft(ψ,1),1) .+ ifft((0.5*ky.^2 .+ Ωz*ky.*(a*z .- c*x)).*fft(ψ,2),2) .+ ifft((0.5*kz.^2 .- Ωz*kz.*(a*y .+ b*x)).*fft(ψ,3),3)
+        return nothing
+    end
+
+    function kobayashi!(dψ,ψ,t)
+        a = Ωx/Ωz*cos(Ωy*t) + sin(Ωy*t)*cos(Ωx*t)
+        b = Ωy/Ωz - sin(Ωx*t)
+        c = Ωx/Ωz*sin(Ωy*t) + cos(Ωy*t)*cos(Ωx*t)
+        dψ .= ifft((0.5*kx.^2 .+ Ωz*kx.*(b*z .+ c*y)).*fft(ψ,1),1) .+ ifft((0.5*ky.^2 .+ Ωz*ky.*(a*z .- c*x)).*fft(ψ,2),2) .+ ifft((0.5*kz.^2 .- Ωz*kz.*(a*y .+ b*x)).*fft(ψ,3),3)
+        return nothing
+    end
+    
+    function kobayashi2!(dψ,ψ,t)
+        Coef = SA[Ωx/Ωz*cos(Ωy*t) + sin(Ωy*t)*cos(Ωx*t), Ωy/Ωz - sin(Ωx*t), Ωx/Ωz*sin(Ωy*t) + cos(Ωy*t)*cos(Ωx*t)]
+        dψ .= ifft((0.5*kx.^2 .+ Ωz*kx.*(Coef[2]*z .+ Coef[3]*y)).*fft(ψ,1),1) 
+                .+ ifft((0.5*ky.^2 .+ Ωz*ky.*(Coef[1]*z .- Coef[3]*x)).*fft(ψ,2),2) 
+                .+ ifft((0.5*kz.^2 .- Ωz*kz.*(Coef[1]*y .+ Coef[2]*x)).*fft(ψ,3),3)
+    end
+end
+
+ψ = complex(sqrt.(ħ*ω_x*l^3/g*[max(0,μ - 0.5*(λ_x^2*i^2 + λ_y^2*j^2 + λ_z^2*k^2)) for i in x, j in x, k in reshape(z,Mz)]));
+dψ = copy(ψ);
+typeof(ψ)
+
+ψ_static = SA{ComplexF64}[]
+
+BB = SA[1, 2, 3]
+
+for i in x, j in x, k in reshape(z,Mz)
+    ψ_static[i,j,k] = [max(0,μ - 0.5*(λ_x^2*i^2 + λ_y^2*j^2 + λ_z^2*k^2))];
+end
+
+
+for i in x, j in x, k in reshape(z,Mz)
+    ψ_static[i,j,k] = complex(sqrt.(ħ*ω_x*l^3/g*[max(0,μ - 0.5*(λ_x^2*i^2 + λ_y^2*j^2 + λ_z^2*k^2))]));
+end
+
+@btime oldnlin!(dψ,ψ); # 2.015 ms on average 
+
+@btime nlin!(dψ,ψ,2) # 2.290 ms on average 
+
+@btime kobayashi!(dψ,ψ,2) #  2.296 ms (237 allocations: 17.19 MiB)
+
+@btime kobayashi2!(dψ,ψ,2); # 2.277 ms (245 allocations: 17.19 MiB)
+
+
+############################################################################
+
+
+
+
+
+function GPE!(dψ,ψ,var,t) # GPE Equation 
+    kfunc!(dψ,ψ)
+    dψ .= @. -(γ + im)*(dψ + (V_μ + G*abs2(ψ))*ψ)
+end
+
+function RotGPE!(dψ,ψ,var,t) # GPE Equation with 3-axis rotation
+    kobayashi!(dψ,ψ,t)
+    dψ .= @. -(γ + im)*(dψ + (V_0 + G*abs2(ψ) .- μ)*ψ)
+end
+
+

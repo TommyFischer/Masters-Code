@@ -1,0 +1,569 @@
+#= 13/3/23 - Just got BoxPotential2 Working but even with thermal noise added
+solutions are symmetric about the z axis. Might be issue with dimensionless units 
+so trying a new equation with different dimensionless units.
+=#
+
+using PlotlyJS,
+    SparseArrays,
+    StaticArrays,
+    LinearAlgebra,
+    DifferentialEquations,
+    FFTW,
+    LaTeXStrings,
+    Plots,
+    WAV,
+    JLD2,
+    Makie, 
+    #GLMakie,
+    CodecZlib,
+    BenchmarkTools,
+    CUDA
+
+begin # Functions for setting up and running simulations
+
+    function kfunc!(dψ,ψ) # Kinetic Energy term (no rotating frame)
+        dψ .= 0.5*(ifft(k2.*fft(ψ)))
+        return nothing
+    end
+
+    function GPE!(dψ,ψ,var,t) # GPE Equation 
+        kfunc_opt!(dψ,ψ)
+        @. dψ =  -(im + γ)*(0.5*dψ + (V_0 + abs2(ψ) - 1)*ψ)
+    end
+
+    function VPE!(dψ,ψ,var,t) # GPE Equation 
+        V1 = V(t)
+        kfunc_opt!(dψ,ψ)
+        dψ .= @. -(im + γ)*(0.5*dψ + (V_0 + V1 + abs2(ψ) - 1)*ψ)
+    end
+
+    function kfunc_opt!(dψ,ψ)
+        mul!(dψ,Pf,ψ)
+        dψ .*= k2
+        Pi!*dψ
+        return nothing
+    end
+end
+
+begin # Functions for making plots
+
+    macro Name(arg)
+        string(arg)
+    end
+    
+    function gradsquared(ψ) # Gradient Squared of ψ
+        ϕ = fft(ψ)
+        out = complex(zeros(M,M,Mz))
+    
+        for j in (kx,ky',reshape(kz,(1,1,Mz)))
+            out .+= abs2.(ifft(im*j.*ϕ))/2
+        end
+        return real.(out)
+    end;     
+
+    function E_Kin(sol) # Kinetic energy over time
+        n = length(sol[1,1,1,:])
+        E_kin = ones(n)
+    
+        for i in 1:n
+            E_kin[i] = sum(gradsquared(sol[:,:,:,i]))
+        end
+        return E_kin
+    end
+
+    function E_Pot(sol) # Potential Energy over time, V needs to be the same
+        n = length(sol[1,1,1,:])
+        E_Pot = ones(n)
+    
+        for i in 1:n
+            E_Pot[i] = sum(V_0.*abs2.(sol[:,:,:,i]))
+        end
+        return E_Pot
+    end
+
+    function E_Int(sol) # Interaction Energy over time
+        n = length(sol[1,1,1,:])
+        E_Int = ones(n)
+    
+        for i in 1:n
+            E_Int[i] = G*sum((abs2.(sol[:,:,:,i])).^2)
+        end
+        return E_Int
+    end
+
+    function Normcheck(solut,l=(0,2)) # Checks Normalisation
+        n = length(solut[1,1,1,:])
+        norm = ones(n)
+        for i in 1:n
+            norm[i] = sum(abs2.(solut[:,:,:,i]))*dx*dy*dz
+        end
+        Plots.plot(norm,ylims = l)
+    end
+
+    function Volume1(res,t,isomax=false,opacity=0.5,surface_count=10) # 3D volume plot of solution at t
+        vals = res[:,:,:,t];
+        X, Y, Z = mgrid(Array(x),Array(y),Array(z));
+    
+        p = PlotlyJS.volume(
+            x=X[:],
+            y=Y[:],
+            z=Z[:],
+            value=vals[:],
+            opacity=opacity,
+            isomin=0,
+            isomax=isomax,
+            surface_count=surface_count,
+            caps=attr(x_show=false, y_show=false,z_show=false),
+            colorscale=:YlOrRd,
+            reversescale = true
+            )
+    
+        data = [p];
+    
+        layout = Layout(title = "t = (sol.t[t])",
+                width = 500,
+                height = 500, 
+                scene_camera=attr(eye=attr(x=0, y=2, z=1)))
+    
+        pl = PlotlyJS.plot(data,layout)
+    
+    end
+
+    function MakieVolume(sol,t,alpha=0.12,iso=[0.15],axis=true,col=:oxy)
+        if typeof(sol[1]) == Array{ComplexF64, 3} # Checking if input solution is already squared or not
+            density_Scaled = abs2.(sol[:,:,:,t])
+        else
+            density_Scaled = copy(sol[:,:,:,t])
+        end
+    
+        for i in 1:length(sol[1,1,1,:]) # Scaling to 1 to make isovalues easier
+            density_Scaled /= maximum(density_Scaled)
+        end
+    
+        Makie.contour(density_Scaled, # Making the plot
+        alpha=alpha,
+        levels=iso,
+        colormap=col,
+        show_axis=axis)
+    end
+
+    function MakieVolume!(sol,t,alpha=0.12,iso=[0.15],axis=true,col=:oxy)
+        if typeof(sol[1]) == Array{ComplexF64, 3} # Checking if input solution is already squared or not
+            density_Scaled = abs2.(sol[:,:,:,t])
+        else
+            density_Scaled = copy(sol[:,:,:,t])
+        end
+    
+        for i in 1:length(sol[1,1,1,:]) # Scaling to 1 to make isovalues easier
+            density_Scaled /= maximum(density_Scaled)
+        end
+    
+        Makie.contour!(density_Scaled, # Making the plot
+        alpha=alpha,
+        levels=iso,
+        colormap=col,
+        show_axis=axis)
+    end
+
+    function MakieGif(sol,title,framerate, alph=0.12, iso=[0.15], axis=true, col=:oxy, )
+        if typeof(sol[1]) == Array{ComplexF64, 3} # Checking if input solution is already squared or not
+            density_Scaled = abs2.(sol)
+        else
+            density_Scaled = copy(sol)
+        end
+    
+        for i in 1:length(density_Scaled[1,1,1,:]) # Scaling to 1 to make isovalues easier
+            density_Scaled[:,:,:,i] /= maximum(density_Scaled[:,:,:,i])
+        end
+    
+        saveat = joinpath("Gifs",title)
+        tindex = Observable(1)
+        scene = Makie.contour(Makie.lift(i -> density_Scaled[i],tindex),
+        alpha=alph,
+        levels=iso,
+        colormap=col,
+        show_axis=axis)
+    
+        Makie.record(scene,saveat,1:length(sol.t),framerate = framerate) do i 
+            tindex[] = i
+        end
+    end
+end
+
+
+############################################ Leshgo ##########################################
+
+begin # Constants 
+
+    ħ = 1.05457182e-34
+    m = 87*1.66e-27 # Rubidium-87 mass (need to check this is correct)
+    a_s = 5.8e-9 # Rubidium-87 scattering length (also check this)
+
+end
+
+begin # Adjustable Parameters
+
+    L = 60
+    M = 150
+
+    A_V = 15 # Trap height
+    n_V = 24 # Trap Power (pretty much always 24)
+    L_V = 8 # no. of healing lengths for V to drop to 0.01
+
+end
+
+begin # Arrays
+
+    x = LinRange(-L/2,L/2,M) |> collect |> cu
+    y = x' |> collect |> cu
+    z = reshape(x,(1,1,M)) |> collect |> cu
+
+    const dx = x[2] - x[1] |> cu
+    const dy = y[2] - y[1] |> cu
+    const dz = z[2] - z[1] |> cu
+
+    kx = fftfreq(M,2π/dx) |> collect |> cu
+    ky = fftfreq(M,2π/dy)' |> collect |> cu
+    kz = reshape(fftfreq(M,2π/dz),(1,1,M)) |> collect |> cu
+
+    const dkx = kx[2] - kx[1] |> cu
+    const dky = ky[2] - ky[1] |> cu
+    const dkz = kz[2] - kz[1] |> cu
+
+    const k2 =  kx.^2 .+ ky.^2 .+ kz.^2 |> cu # 3D wave vector
+    const dr = dx*dy*dz |> cu
+
+end
+
+begin # Box Trap Potential
+
+    V_0 = zeros(M,M,M) 
+    Vboundary(x) = A_V*cos(x/λ)^n_V 
+
+    λ = L_V/acos(0.01^(1/n_V))
+    
+    for i in 1:M, j in 1:M, k in 1:M
+        l_x = min(2*L_V,L/2 - abs(x[i])) # Finding the distance to the edge in each dimension, 
+        l_y = min(2*L_V,L/2 - abs(y[j])) # discarding if further than 2*L_V
+        l_z = min(2*L_V,L/2 - abs(y[k]))
+
+        l = map(Vboundary,(l_x,l_y,l_z))
+
+        V_0[i,j,k] = hypot(l[1],l[2],l[3])
+        V_0 = cu(V_0)
+    end
+end;
+
+ψ_rand = (randn(M,M,M) + im*randn(M,M,M)) |> cu;
+
+const Pf = dr/(2π)^1.5*plan_fft(copy(ψ_rand));
+const Pi! = M^3*dkx*dky*dkz/(2π)^1.5*plan_ifft!(copy(ψ_rand));
+
+
+############################################ Finding Ground State ##########################################
+
+
+ψ_ones = ones(M,M,M) |> complex |> cu;
+
+begin 
+    γ = 1
+    tspan = (0.0,1.0); 
+
+    prob = ODEProblem(GPE!,ψ_ones,tspan)    
+    @time sol_GS = solve(prob,reltol=10e-6,saveat=tspan)
+end;
+
+#@btime GPE!(copy(ψ_rand),copy(ψ_rand),1,1);
+
+length(sol_GS.t)
+#Normcheck(res,(0,1e5))
+
+res = abs2.(sol_GS) |> Array;
+typeof(res)
+
+Plots.heatmap(res[:,:,50,2],clims=(0,4))
+
+for i in 1:2:length(res[1,1,1,:])
+    P = Plots.heatmap(res[:,:,50,i],clims=(0,1.5))
+    display(P)
+end
+
+
+############################################ Creating Turbulence ##########################################
+
+
+ψ_GS = sol_GS[:,:,:,end] + .01*(randn(M,M,M) .+ im*randn(M,M,M)) |> cu;
+typeof(ψ_GS)
+
+@save "GS" ψ_GS
+@load "GS" ψ_GS
+
+ω_shake = π/2
+shakegrid = 2*Array(z).* ones(M,M,M) |> complex |> cu;
+
+V(t) = sin(ω_shake*t)*shakegrid
+
+begin 
+    γ = 0.0005
+    tspan = (0.0,120.0);
+
+    prob = ODEProblem(VPE!,ψ_GS,tspan)    
+    @time sol = solve(prob,reltol=10e-6,saveat=tspan)
+end;
+
+@save "sol" sol 
+@load "sol" sol
+
+res = abs2.(sol) |> Array;
+
+size(sol)
+Normcheck(res,(0,3e4))
+#rizz = abs2.(sol);
+#riss = angle.(sol);
+
+
+############################################ Plotting/Animating Results and Spectra ##########################################
+
+
+Plots.heatmap(res[:,:,50,2],clims=(0,4),aspectratio=1,c=:thermal)
+#Plots.heatmap(riss[:,50,:,80],clims=(0,3),aspectratio=1)
+
+solArray = sol |> Array;
+
+solArray[:,:,:,1] .= Array(sol_GS[end]);
+
+for i in 1:length(sol.t)
+    P = Plots.heatmap(x,x,rizz[:,50,:,i],clims=(0,3),aspectratio=1,xlims=(-15,15),c=:thermal)
+    #Plots.xlims!(-15,15)
+    display(P)
+    sleep(0.02)
+end
+
+Volume1(abs2.(solArray[:,:,:,1]),1)
+
+using QuantumFluidSpectra
+
+@fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
+
+X = map(Array,(x,x,x));
+K = map(Array,(kx,kx,kx));
+
+psi = Psi(ComplexF64.(solArray[:,:,:,2]),X,K);
+k = log10range(0.1,10^2,100)#ln.(LinRange(-1,3,100));
+E_i = incompressible_spectrum(k,psi);
+E_c = compressible_spectrum(k,psi);
+
+k_L = 2π/(L)# Size of the System
+k_l = 2π/(L - 2*L_V) # Size of the condensate accounting for the box trap, need to do this
+k_ξ = 2π# Healing length
+k_dr = 2π/dr^(1/3) # Geometric mean of resolution
+k_lol = 2π/dx
+
+#klines = [k_L,k_l,k_ξ,k_dr,k_lol];
+
+begin
+    P = Plots.plot(k,E_c./E_i,axis=:log,label=false,alpha = 0.3,linewidth=2)
+    Plots.plot!(x->(5e5)*x^(-3),[x for x in k[45:68]],label=false,alpha=1)
+    Plots.plot!(x->(1e4)*x^-(.5),[x for x in k[20:60]],label=false,alpha=1)
+    Plots.ylims!(0.1,10)
+    Plots.xlims!(.1,10^2)
+
+    #for i in klines
+    #    vline!([i], label = (@Name i),linestyle=:dash,alpha=0.5)
+    #end
+    
+    vline!([k_L], label = L"$k_L$",linestyle=:dash,alpha=0.5)
+    vline!([k_l], label = L"$k_l$",linestyle=:dash,alpha=0.5)
+    vline!([k_ξ], label = L"$k_\xi$",linestyle=:dash,alpha=0.5)
+    vline!([k_dr], label = L"$k_{dr}$",linestyle=:dash,alpha=0.5)
+    vline!([k_lol], label = L"$k_{lol}$",linestyle=:dash,alpha=0.5)
+end
+
+efftpsi = log.(abs2.(fftshift(fft(solArray[:,:,:,1]))));
+Plots.heatmap(efftpsi[:,:,50])
+
+
+############################################ Expansion ##########################################
+
+using Parameters
+using LoopVectorization, Tullio, OrdinaryDiffEq
+import Plots.current
+gr(grid=false)
+
+begin # Expansion Functions
+
+    function CurrentDensity(ψ)
+        ϕ = fft(ψ)
+        ϕi = fft(conj(ψ))
+        
+        σx = x.*(ψ.*ifft(im*kx.*ϕ) - conj(ψ).*ifft(im*kx.*ϕi)) |> sum
+        σy = y.*(ψ.*ifft(im*ky.*ϕ) - conj(ψ).*ifft(im*ky.*ϕi)) |> sum
+        σz = z.*(ψ.*ifft(im*kz.*ϕ) - conj(ψ).*ifft(im*kz.*ϕi)) |> sum
+
+        return (σx,σy,σz)
+    end
+
+    function initialise(ψ,x,y,z)
+
+        ax2 = dr*sum(@. x^2*abs2(ψ))
+        ay2 = dr*sum(@. y^2*abs2(ψ))
+        az2 = dr*sum(@. z^2*abs2(ψ))
+
+        σ = 0.5*im*dr*CurrentDensity(ψ)./(ax2,ay2,az2)
+        ϕ = @. ψ*exp(-im*(σ[1]*x^2 + σ[2]*y^2 + σ[3]*z^2))
+
+        return 1,1,1,σ,ϕ
+    end
+
+    function firstOrder!(i) # 
+        mul!(dϕ,PfArray[i],ϕ)
+        dϕ .*= im*k[i]
+        dσ[i] = λ[i]^(-2) * sum(abs2.(PiArray[i]*dϕ))
+    end
+
+    function kfunc2!(dϕ,ϕ,λ)
+        mul!(dϕ,Pf,ϕ)
+        dϕ .*= ((kx*λ[1]).^2 .+ (ky*λ[2]).^2 .+ (kz*λ[3]).^2)
+        Pi!*dϕ 
+    end
+
+    function ρ2(λ,σ)
+        λx,λy,λz = λ |> real
+        σx,σy,σz = σ |> real
+        return @. x^2*λx*σx + y'^2*λy*σy + zt^2*λz*σz
+    end
+
+    function spectralExpansion!(du,u,p,t)
+
+        ϕ = @view u[1:N,:,:]
+        λ = @view u[end,1:3,1]
+        σ = @view u[end,1:6,1]
+
+        dϕ = @view du[1:N,:,:]
+        dλ = @view du[end,1:3,1]
+        dσ = @view du[end,1:6,1]
+
+        dλ = σ
+        λ̄3 = prod(λ) # geometric mean cubed 
+
+        # dσ/dt
+
+        firstOrder!(1) # Computing 3rd term in dσ equations
+        firstOrder!(2)
+        firstOrder!(3)
+
+        dσ .-= map(x -> sum(abs2.(ϕ).*x),(xdV,ydV,zdV)) # Computing second terms
+        dσ .+= 0.5*N/λ̄3*sum(abs2.(ϕ)) # Computing first terms
+        @. dσ *= dr/(λ[1]*ax^2,λ[2]*ay^2,λ[3]*az^2) # Coefficients
+
+        # dϕ/dt
+        
+        kfunc2!(dϕ,ϕ,λ) # Kinetic Term
+        dϕ = @. -im*(0.5*dϕ + (V + Na/λ̄3*abs2.(ϕ) + 0.5*ρ2(λ,σ))*ϕ)
+    end
+
+    function number(ψ)
+        return sum(abs2.(ψ))*d³r
+    end
+
+    function extractinfo(sol)
+        λx = sol[end,1,1,:]
+        λy = sol[end,2,1,:]
+        λz = sol[end,3,1,:]
+
+        σx = sol[end,4,1,:]
+        σy = sol[end,5,1,:]
+        σz = sol[end,6,1,:]
+
+        ax = zeros(length(sol.t))
+        ay = zeros(length(sol.t))
+        az = zeros(length(sol.t))
+
+        for i in eachindex(sol.t)
+            ax[i] = sqrt(ax2*λx[i]^2)
+            ay[i] = sqrt(ay2*λy[i]^2)
+            az[i] = sqrt(az2*λz[i]^2)
+        end
+
+        ϕ = sol[1:N,:,:,:]
+
+        return ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az
+    end
+
+end
+
+begin
+    ψ_0 = sol[end]
+
+    const Pfx = dx/sqrt(2π)*plan_fft(copy(ψ_rand),1)
+    const Pfy = dy/sqrt(2π)*plan_fft(copy(ψ_rand),2)
+    const Pfz = dz/sqrt(2π)*plan_fft(copy(ψ_rand),3)
+
+    const Pix! = M*dkx/sqrt(2π)*plan_ifft(copy(ψ_rand),1)
+    const Piy! = M*dky/sqrt(2π)*plan_ifft(copy(ψ_rand),2)
+    const Piz! = M*dkz/sqrt(2π)*plan_ifft(copy(ψ_rand),3)
+
+    PfArray = [Pfx, Pfy, Pfz];
+    PiArray = [Pix!,Piy!,Piz!];
+end;
+
+Plots.heatmap(abs2.(ψ_0[:,:,64]),aspectratio=1)
+
+const Na = number(ψ_0)
+ψ_0 /= sqrt(Na);
+
+#begin
+    x = Array(x);
+    y = Array(y);
+    z = Array(z);
+    zt = Array(zt);
+
+    kx = Array(kx);
+    ky = Array(ky);
+    kz = Array(kz);
+
+    lx0,ly0,lz0,sx0,sy0,sz0 = initial_scaling(psi);
+    ϕ0 = initial_condition(Array(ψ_0));
+
+    #x = cu(x);
+    #y = cu(y);
+    #z = cu(z);
+    #zt = cu(zt);
+
+    #kx = cu(kx);
+    #ky = cu(ky);
+    #kz = cu(kz);
+
+    tfs = 15
+    nt = 20
+    t = LinRange(0,tfs,nt)
+    probs = ODEProblem(ScalingDynamics!,ϕ0,(0.0,tfs))
+    @time solt2 = solve(probs,Tsit5(),saveat=t,abstol=1e-6,reltol=1e-6);
+end;
+
+@save "/scratch/fischert/turbmed2" solt2
+@load "/scratch/fischert/turbsamelarge" solt2
+
+λx, λy, λz, σx, σy, σz, s_sizes, p_sizes = scaling_info(solt2);
+
+xsize = s_sizes[:,1];
+ysize = s_sizes[:,2];
+zsize = s_sizes[:,3];
+
+pxsize = p_sizes[:,1];
+pysize = p_sizes[:,2];
+pzsize = p_sizes[:,3];
+
+
+Plots.plot(zsize./(xsize),ylims=(0,1.8))
+Plots.plot!(zsize./(ysize))
+Plots.plot!(ysize./(xsize))
+
+Ekx(sol,t) = 0.5*dr*sum(abs2.(ifft(im*kx.*fft(sol[1:150,:,:,t]))))
+Eky(sol,t) = 0.5*dr*sum(abs2.(ifft(im*ky.*fft(sol[1:150,:,:,t]))))
+Ekz(sol,t) = 0.5*dr*sum(abs2.(ifft(im*kz.*fft(sol[1:150,:,:,t]))))
+
+res = abs2.(solt2) |> Array;
+Ekx(solt2[1:150,:,:,:],1)
+Eky(solt2[1:150,:,:,:],1)
+Ekz(solt2[1:150,:,:,:],1)
