@@ -1,5 +1,7 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
 
+# Syncing is working 
+
 using PlotlyJS,
     SparseArrays,
     StaticArrays,
@@ -306,7 +308,7 @@ typeof(ψ_GS)
 @load "GS" ψ_GS
 
 ω_shake = π/2
-shakegrid = 1*Array(z).* ones(M,M,M) |> complex;
+shakegrid = Array(z).* ones(M,M,M) |> complex;
 
 V(t) = sin(ω_shake*t)*shakegrid
 ψ_noise = ψ_GS .+ .01*(randn(M,M,M) .+ im*randn(M,M,M));
@@ -318,7 +320,7 @@ end;
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,150,2)
+    tspan = LinRange(0,75,2)
 
     prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
@@ -328,7 +330,7 @@ end;
 @load "sol" sol
 
 size(sol)
-#Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
+Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 
 rizz = abs2.(Array(sol));
 riss = angle.(Array(sol));
