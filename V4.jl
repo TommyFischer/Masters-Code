@@ -183,6 +183,7 @@ end
 
 ############################################ Leshgo ##########################################
 
+# Syncing is working
 
 begin # Adjustable Parameters and constants 
 
@@ -202,8 +203,7 @@ begin # Adjustable Parameters and constants
     A_V = 15 # Trap height
     n_V = 24 # Trap Power (pretty much always 24)
     L_V = 8 # no. of healing lengths for V to drop to 0.01
-    use_cuda = CUDA.functional()
-
+    use_cuda = false#CUDA.functional()
 end
 
 begin # Arrays
