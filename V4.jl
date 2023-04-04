@@ -196,6 +196,7 @@ begin # Adjustable Parameters and constants
 
     ξ = ħ/sqrt(m*μ)
     ψ0 = sqrt(μ/g)
+    τ = ħ/μ
 
     L = 36 # Box width
     M = 130 # Grid size
@@ -203,8 +204,9 @@ begin # Adjustable Parameters and constants
     A_V = 15 # Trap height
     n_V = 24 # Trap Power (pretty much always 24)
     L_V = 8 # no. of healing lengths for V to drop to 0.01
-    use_cuda = false#CUDA.functional()
+    use_cuda = CUDA.functional()
 end
+
 
 begin # Arrays
 
@@ -288,7 +290,7 @@ typeof(sol)
 number(sol[end])
 
 res = abs2.(Array(sol));
-Plots.heatmap(res[:,75,:,end],clims=(0,1.5),aspectratio=1)
+Plots.heatmap(res[:,65,:,end],clims=(0,1.5),aspectratio=1)
 
 for i in 1:2:length(sol_GS.t)
     P = Plots.heatmap(res[:,:,25,i],clims=(0,1.5))
@@ -298,15 +300,15 @@ end
 
 ############################################ Creating Turbulence ##########################################
 
-
 ψ_GS = sol[:,:,:,end];
 typeof(ψ_GS)
 
 @save "GS" ψ_GS
 @load "GS" ψ_GS
 
-ω_shake = π/2
-shakegrid = 1*Array(z).* ones(M,M,M) |> complex;
+ΔU = 1.2
+ω_shake = 2π * 0.03055 
+shakegrid = ΔU * Array(z)./(L/2) .* ones(M,M,M) |> complex;
 
 V(t) = sin(ω_shake*t)*shakegrid
 ψ_noise = ψ_GS .+ .01*(randn(M,M,M) .+ im*randn(M,M,M));
@@ -318,7 +320,7 @@ end;
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,150,2)
+    tspan = LinRange(0,500,10)
 
     prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
@@ -327,13 +329,14 @@ end;
 @save "sol" sol 
 @load "sol" sol
 
+CUDA.memory_status()
 size(sol)
 #Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 
 rizz = abs2.(Array(sol));
 riss = angle.(Array(sol));
 
-Plots.heatmap(x,x,rizz[:,75,:,2],clims=(0,1.5),aspectratio=1,c=:thermal)
+Plots.heatmap(x,x,rizz[:,65,:,10],clims=(0,1.5),aspectratio=1,c=:thermal)
 vline!([-7.1,7.1])
 Plots.heatmap(riss[:,5,:,80],clims=(0,3),aspectratio=1)
 
@@ -352,12 +355,21 @@ using QuantumFluidSpectra
 
 X = map(Array,(x,x,x));
 K = map(Array,(kx,kx,kx));
-ψ = ComplexF64.(Array(sol[end]));
+ψ = ComplexF64.(Array(ψ_GS));
+
+E = zeros(100,10)
+
+for i in 2:10
+    ψ = ComplexF64.(Array(sol[i]));
+    psi = Psi(ψ,X,K);
+    E[:,i] = incompressible_spectrum(k,psi);
+end;
 
 psi = Psi(ψ,X,K);
 k = log10range(0.1,10^2,100)#ln.(LinRange(-1,3,100));
 E_i = incompressible_spectrum(k,psi);
 #E_c = compressible_spectrum(k,psi);
+E[:,1] .= E_i
 
 k_L = 2π/(L)# Size of the System
 k_l = 2π/(L - 2*L_V) # Size of the condensate accounting for the box trap
@@ -369,9 +381,9 @@ k_lol = 2π/hypot(dx,dx,dx)
 #klines = [k_L,k_l,k_ξ,k_dr,k_lol];
 
 begin
-    P = Plots.plot(k,E_i,axis=:log,ylims=(0.1,10^7),label=false,lw=2,alpha=0.5)
-    Plots.plot!(x->(2e3)*x^-3,[x for x in k[40:75]],label=false,alpha=1,lw=.5)
-    Plots.plot!(x->(2e2)*x^0,[x for x in k[15:50]],label=false,alpha=1,lw=.5)
+    P = Plots.plot(k,E[:,10],axis=:log,ylims=(0.001,10^7),label=false,lw=2,alpha=0.5)
+    #Plots.plot!(x->(30e3)*x^-3,[x for x in k[40:75]],label=false,alpha=1,lw=.5)
+    #Plots.plot!(x->(2e2)*x^0,[x for x in k[15:50]],label=false,alpha=1,lw=.5)
 
     #for i in klines
     #    vline!([i], label = (@Name i),linestyle=:dash,alpha=0.5)
@@ -390,12 +402,11 @@ fftpsi = log.(abs2.(fftshift(fft(sol[end]))));
 
 ############################################ Expansion ##########################################
 
-
 begin # Expansion Functions
 
     function initialise(ψ)
         global Na = number(ψ)
-        ϕi = ψ ./ sqrt(Na);
+        ϕi = ψ ./ sqrt(Na) .|> ComplexF32;
 
         global ax2 = dr*sum(@. x^2*abs2(ϕi))
         global ay2 = dr*sum(@. y^2*abs2(ϕi))
@@ -406,14 +417,17 @@ begin # Expansion Functions
 
         if use_cuda
             ϕi, σi = ϕi, σi |> cu
+            global Pfy = Pf # Cannot do cuda fft along second dimension, have to do full transform :( 
+            global Piy! = Pi!
+        else
+            global Pfy = dy/sqrt(2π)*plan_fft(copy(ϕi),2)
+            global Piy! = M*dky/sqrt(2π)*plan_ifft!(copy(ϕi),2)
         end
 
         global Pfx = dx/sqrt(2π)*plan_fft(copy(ϕi),1)
-        global Pfy = dy/sqrt(2π)*plan_fft(copy(ϕi),2)
         global Pfz = dz/sqrt(2π)*plan_fft(copy(ϕi),3)
     
         global Pix! = M*dkx/sqrt(2π)*plan_ifft!(copy(ϕi),1)
-        global Piy! = M*dky/sqrt(2π)*plan_ifft!(copy(ϕi),2)
         global Piz! = M*dkz/sqrt(2π)*plan_ifft!(copy(ϕi),3)
 
         ϕ_initial =  ArrayPartition(ϕi,[1,1,1,σi[1],σi[2],σi[3]])
@@ -421,20 +435,20 @@ begin # Expansion Functions
     end
 
     function extractinfo(sol)
-        λx = [sol[:,i].x[2][1] for i in eachindex(t)]
-        λy = [sol[:,i].x[2][2] for i in eachindex(t)]
-        λz = [sol[:,i].x[2][3] for i in eachindex(t)]
+        λx = [sol[:,i].x[2][1] for i in eachindex(sol.t)]
+        λy = [sol[:,i].x[2][2] for i in eachindex(sol.t)]
+        λz = [sol[:,i].x[2][3] for i in eachindex(sol.t)]
         
-        σx = [sol[:,i].x[2][4] for i in eachindex(t)]
-        σy = [sol[:,i].x[2][5] for i in eachindex(t)]
-        σz = [sol[:,i].x[2][6] for i in eachindex(t)]
+        σx = [sol[:,i].x[2][4] for i in eachindex(sol.t)]
+        σy = [sol[:,i].x[2][5] for i in eachindex(sol.t)]
+        σz = [sol[:,i].x[2][6] for i in eachindex(sol.t)]
     
         ax = @. sqrt(ax2*λx^2)
         ay = @. sqrt(ay2*λy^2)
         az = @. sqrt(az2*λz^2)
     
-        ϕ = [sol[:,i].x[1] for i in eachindex(t)]
-        res = [abs2.(ϕ) for i in eachindex(solt2.t)];
+        ϕ = [sol[:,i].x[1] for i in eachindex(sol.t)]
+        res = [abs2.(ϕ[i]) for i in eachindex(sol.t)];
 
         return res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az
     end
@@ -501,10 +515,6 @@ begin # Expansion Functions
 
 end
 
-@time Pfx*ψ_GS;
-
-
-
 begin
 
     ψ_0 = sol[end]
@@ -521,6 +531,7 @@ begin
     zdV = V_0#z.*ifft(im*kz.*fft(V_0)) .|> real
 
     if use_cuda
+        V_0 = V_0 |> cu
         xdV = xdV |> cu
         ydV = ydV |> cu
         zdV = zdV |> cu
@@ -528,17 +539,23 @@ begin
 
 end;
 
-t = LinRange(0,10,2);
+t = LinRange(0,20,10);
 
-probs = ODEProblem(spec_expansion!,ϕ_initial,(t[1],t[end]));
-@time solt2 = solve(probs,saveat=t,abstol=1e-6,reltol=1e-6);
+probs = ODEProblem(spec_expansion_opt!,ϕ_initial,(t[1],t[end]));
+@time solt2 = solve(probs,saveat=t)#,abstol=1e-6,reltol=1e-6);
 
 res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(solt2);
 
 Norm = [ξ^3*ψ0^2*dr*sum(res[i]) for i in eachindex(solt2.t)]
 
-Plots.plot(σx,ylims=(0.0,.3))
+Plots.plot(λx)#,ylims=(0.0,.3))
+Plots.plot!(λy)#,ylims=(0.0,.3))
+Plots.plot!(λz)#,ylims=(0.0,.3))
+
 Plots.plot(Norm,ylims=(0,1.5))
+
+size(solt2)
+Plots.heatmap(abs2.(Array(solt2[:,6].x[1][:,:,65])))
 
 for i in 1:length(solt2.t)
     P = Plots.heatmap(x,x,res[i][:,25,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
