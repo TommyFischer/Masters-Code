@@ -1,5 +1,7 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
 
+# Syncing is working 
+
 using PlotlyJS,
     SparseArrays,
     StaticArrays,
@@ -331,7 +333,7 @@ end;
 
 CUDA.memory_status()
 size(sol)
-#Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
+Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 
 rizz = abs2.(Array(sol));
 riss = angle.(Array(sol));
