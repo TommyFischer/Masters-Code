@@ -267,8 +267,8 @@ if use_cuda # Transforming arrays
 end;
 
 if use_cuda # For some reason FFTW.MEASURE doesn't work for cuda arrays
-    const Pf = dr/(2π)^1.5*plan_fft(copy(ψ_rand));
-    const Pi! = M^3*dkx*dky*dkz/(2π)^1.5*plan_ifft!(copy(ψ_rand));
+    const Pf = Float32(dr/(2π)^1.5)*plan_fft(copy(ψ_rand));
+    const Pi! = Float32(M^3*dkx*dky*dkz/(2π)^1.5)*plan_ifft!(copy(ψ_rand));
 else
     const Pf = dr/(2π)^1.5*plan_fft(copy(ψ_rand),flags=FFTW.MEASURE);
     const Pi! = M^3*dkx*dky*dkz/(2π)^1.5*plan_ifft!(copy(ψ_rand),flags=FFTW.MEASURE);
@@ -321,7 +321,7 @@ end;
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,75,2)
+    tspan = LinRange(0,500,2)
 
     prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
@@ -337,7 +337,7 @@ Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 rizz = abs2.(Array(sol));
 riss = angle.(Array(sol));
 
-Plots.heatmap(x,x,rizz[:,75,:,2],clims=(0,1.5),aspectratio=1,c=:thermal)
+Plots.heatmap(x,x,rizz[:,35,:,2],clims=(0,1.5),aspectratio=1,c=:thermal)
 vline!([-7.1,7.1])
 Plots.heatmap(riss[:,5,:,80],clims=(0,3),aspectratio=1)
 
@@ -407,8 +407,12 @@ fftpsi = log.(abs2.(fftshift(fft(sol[end]))));
 begin # Expansion Functions
 
     function initialise(ψ)
-        global Na = number(ψ)
-        ϕi = ψ ./ sqrt(Na) .|> ComplexF32;
+        global Na = number(ψ) |> Float32
+        ϕi = ψ ./ sqrt(Na)
+        
+        if use_cuda
+            ϕi = cu(ϕi)
+        end
 
         global ax2 = dr*sum(@. x^2*abs2(ϕi))
         global ay2 = dr*sum(@. y^2*abs2(ϕi))
@@ -419,18 +423,22 @@ begin # Expansion Functions
 
         if use_cuda
             ϕi, σi = ϕi, σi |> cu
+            global Pfx = Float32(dx/sqrt(2π))*plan_fft(copy(ϕi),1)
             global Pfy = Pf # Cannot do cuda fft along second dimension, have to do full transform :( 
-            global Piy! = Pi!
-        else
-            global Pfy = dy/sqrt(2π)*plan_fft(copy(ϕi),2)
-            global Piy! = M*dky/sqrt(2π)*plan_ifft!(copy(ϕi),2)
-        end
+            global Pfz = Float32(dz/sqrt(2π))*plan_fft(copy(ϕi),3)
 
-        global Pfx = dx/sqrt(2π)*plan_fft(copy(ϕi),1)
-        global Pfz = dz/sqrt(2π)*plan_fft(copy(ϕi),3)
-    
-        global Pix! = M*dkx/sqrt(2π)*plan_ifft!(copy(ϕi),1)
-        global Piz! = M*dkz/sqrt(2π)*plan_ifft!(copy(ϕi),3)
+            global Pix! = Float32(M*dkx/sqrt(2π))*plan_ifft!(copy(ϕi),1)
+            global Piy! = Pi!
+            global Piz! = Float32(M*dkz/sqrt(2π))*plan_ifft!(copy(ϕi),3)
+        else
+            global Pfx = dx/sqrt(2π)*plan_fft(copy(ϕi),1)
+            global Pfy = dy/sqrt(2π)*plan_fft(copy(ϕi),2)
+            global Pfz = dz/sqrt(2π)*plan_fft(copy(ϕi),3)
+
+            global Pix! = M*dkx/sqrt(2π)*plan_ifft!(copy(ϕi),1)
+            global Piy! = M*dky/sqrt(2π)*plan_ifft!(copy(ϕi),2)
+            global Piz! = M*dkz/sqrt(2π)*plan_ifft!(copy(ϕi),3)
+        end
 
         ϕ_initial =  ArrayPartition(ϕi,[1,1,1,σi[1],σi[2],σi[3]])
         return ϕ_initial
@@ -475,7 +483,7 @@ begin # Expansion Functions
     function ρ2(λ,σ)
         λx,λy,λz = λ |> real
         σx,σy,σz = σ |> real
-        return @. x^2*λx*σx + y^2*λy*σy + z^2*λz*σz
+        return  @. x.^2*λx*σx + y^2*λy*σy + z^2*λz*σz
     end
 
     function firstOrder!(dϕ,ϕ,dσ,λ,i)  
@@ -489,6 +497,7 @@ begin # Expansion Functions
         λ = u.x[2][1:3]
         σ = u.x[2][4:6]
 
+        #println(typeof(ϕ))
         dϕ = du.x[1]
         du.x[2][1:3] .= u.x[2][4:6]
         dσ = du.x[2][4:6]
@@ -512,7 +521,6 @@ begin # Expansion Functions
         
         du.x[1] .= dϕ
         du.x[2][4:6] .= dσ
-
     end 
 
 end
@@ -541,21 +549,28 @@ begin
 
 end;
 
-t = LinRange(0,20,20);
+t = LinRange(0,30,10);
 
 probs = ODEProblem(spec_expansion_opt!,ϕ_initial,(t[1],t[end]));
-@time solt2 = solve(probs,saveat=t,abstol=1e-6,reltol=1e-6);
+@time solt2 = solve(probs,saveat=t);#,abstol=1e-6,reltol=1e-6);
 
 res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(solt2);
 
 Norm = [ξ^3*ψ0^2*dr*sum(res[i]) for i in eachindex(solt2.t)]
 
 Plots.plot(σx,ylims=(0.0,.3))
+Plots.plot!(σy,ylims=(0.0,.3))
+Plots.plot!(σz,ylims=(0.0,.3))
+
 Plots.plot(Norm,ylims=(0,1.5))
 
 for i in 1:length(solt2.t)
-    P = Plots.heatmap(x,x,res[i][:,:,35],aspectratio=1)#,clims=(0,2e0),c=:thermal)
+    P = Plots.heatmap(x,x,res[i][:,:,20],aspectratio=1)#,clims=(0,2e0),c=:thermal)
     display(P)
     sleep(0.05)
+end
+
+@gif for i in 1:M
+    Plots.heatmap(x,x,res[end][:,:,i],aspectratio=1,clims=(0,2e0),c=:thermal)
 end
 
