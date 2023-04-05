@@ -1,6 +1,6 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
 
-# Last Edit:  3:34pm Tuesday 4th April
+# Last Edit:  2pm Tuesday 5th April
 
 using PlotlyJS,
     SparseArrays,
@@ -185,7 +185,6 @@ end
 
 ############################################ Leshgo ##########################################
 
-# Syncing is working
 
 begin # Adjustable Parameters and constants 
 
@@ -201,14 +200,14 @@ begin # Adjustable Parameters and constants
     τ = ħ/μ
 
     L = 36 # Box width
-    M = 130 # Grid size
+    M = 70 # Grid size
 
     A_V = 15 # Trap height
     n_V = 24 # Trap Power (pretty much always 24)
     L_V = 8 # no. of healing lengths for V to drop to 0.01
     use_cuda = CUDA.functional()
-end
 
+end
 
 begin # Arrays
 
@@ -292,7 +291,7 @@ typeof(sol)
 number(sol[end])
 
 res = abs2.(Array(sol));
-Plots.heatmap(res[:,65,:,end],clims=(0,1.5),aspectratio=1)
+Plots.heatmap(res[:,35,:,end],clims=(0,1.5),aspectratio=1)
 
 for i in 1:2:length(sol_GS.t)
     P = Plots.heatmap(res[:,:,25,i],clims=(0,1.5))
@@ -322,7 +321,7 @@ end;
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,500,10)
+    tspan = LinRange(0,75,2)
 
     prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
@@ -338,7 +337,7 @@ Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 rizz = abs2.(Array(sol));
 riss = angle.(Array(sol));
 
-Plots.heatmap(x,x,rizz[:,65,:,10],clims=(0,1.5),aspectratio=1,c=:thermal)
+Plots.heatmap(x,x,rizz[:,75,:,2],clims=(0,1.5),aspectratio=1,c=:thermal)
 vline!([-7.1,7.1])
 Plots.heatmap(riss[:,5,:,80],clims=(0,3),aspectratio=1)
 
@@ -383,9 +382,9 @@ k_lol = 2π/hypot(dx,dx,dx)
 #klines = [k_L,k_l,k_ξ,k_dr,k_lol];
 
 begin
-    P = Plots.plot(k,E[:,10],axis=:log,ylims=(0.001,10^7),label=false,lw=2,alpha=0.5)
-    #Plots.plot!(x->(30e3)*x^-3,[x for x in k[40:75]],label=false,alpha=1,lw=.5)
-    #Plots.plot!(x->(2e2)*x^0,[x for x in k[15:50]],label=false,alpha=1,lw=.5)
+    P = Plots.plot(k,E_i,axis=:log,ylims=(0.1,10^7),label=false,lw=2,alpha=0.5)
+    Plots.plot!(x->(2e3)*x^-3,[x for x in k[40:75]],label=false,alpha=1,lw=.5)
+    Plots.plot!(x->(2e2)*x^0,[x for x in k[15:50]],label=false,alpha=1,lw=.5)
 
     #for i in klines
     #    vline!([i], label = (@Name i),linestyle=:dash,alpha=0.5)
@@ -403,6 +402,7 @@ fftpsi = log.(abs2.(fftshift(fft(sol[end]))));
 
 
 ############################################ Expansion ##########################################
+
 
 begin # Expansion Functions
 
@@ -490,7 +490,7 @@ begin # Expansion Functions
         σ = u.x[2][4:6]
 
         dϕ = du.x[1]
-        du.x[2][1:3] = σ
+        du.x[2][1:3] .= u.x[2][4:6]
         dσ = du.x[2][4:6]
 
         λ̄³ = prod(λ) 
@@ -541,27 +541,21 @@ begin
 
 end;
 
-t = LinRange(0,20,10);
+t = LinRange(0,20,20);
 
 probs = ODEProblem(spec_expansion_opt!,ϕ_initial,(t[1],t[end]));
-@time solt2 = solve(probs,saveat=t)#,abstol=1e-6,reltol=1e-6);
+@time solt2 = solve(probs,saveat=t,abstol=1e-6,reltol=1e-6);
 
 res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(solt2);
 
 Norm = [ξ^3*ψ0^2*dr*sum(res[i]) for i in eachindex(solt2.t)]
 
-Plots.plot(λx)#,ylims=(0.0,.3))
-Plots.plot!(λy)#,ylims=(0.0,.3))
-Plots.plot!(λz)#,ylims=(0.0,.3))
-
+Plots.plot(σx,ylims=(0.0,.3))
 Plots.plot(Norm,ylims=(0,1.5))
 
-size(solt2)
-Plots.heatmap(abs2.(Array(solt2[:,6].x[1][:,:,65])))
-
 for i in 1:length(solt2.t)
-    P = Plots.heatmap(x,x,res[i][:,25,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
+    P = Plots.heatmap(x,x,res[i][:,:,35],aspectratio=1)#,clims=(0,2e0),c=:thermal)
     display(P)
-    sleep(0.01)
+    sleep(0.05)
 end
 
