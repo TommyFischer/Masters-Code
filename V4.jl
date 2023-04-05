@@ -1,6 +1,6 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
 
-# Last Edit:  2pm Tuesday 5th April
+# Last Edit:  10pm Tuesday 5th April
 
 using PlotlyJS,
     SparseArrays,
@@ -51,6 +51,14 @@ begin # Functions for setting up and running simulations
 end
 
 begin # Functions for making plots
+
+    Ek(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*ksum.*fft(ψ)))) # E_Kinetic / μ
+    Ep(ψ,V) = ξ^3*ψ0^2 * dr*sum(V.*abs2.(ψ)) |> real # E_Potential / μ
+    Ei(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ψ).^2) # E_Interaction / μ
+
+    Ekx(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(kx).*fft(ψ)))) # x-direction E_k
+    Eky(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(ky).*fft(ψ)))) # y-direction E_k
+    Ekz(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(kz).*fft(ψ)))) # z-direction E_k
 
     function gradsquared(ψ) # Gradient Squared of ψ
         ϕ = fft(ψ)
@@ -200,7 +208,7 @@ begin # Adjustable Parameters and constants
     τ = ħ/μ
 
     L = 36 # Box width
-    M = 70 # Grid size
+    M = 130 # Grid size
 
     A_V = 15 # Trap height
     n_V = 24 # Trap Power (pretty much always 24)
@@ -229,8 +237,8 @@ begin # Arrays
 
     k2 =  kx.^2 .+ ky.^2 .+ kz.^2 # 3D wave vector
     dr = dx*dy*dz
-
-end
+    ksum = kx .+ ky .+ kz
+end;
 
 begin # Box Trap Potential
 
@@ -284,6 +292,13 @@ begin
     @time sol = solve(prob,saveat=tspan)
 end;
 
+typeof(res)
+res = Array(sol);
+
+Ei(res[:,:,:,2])*1e-4
+Ek(res[:,:,:,2])*1e-4
+Ep(res[:,:,:,2],Array(V_0))*1e-4
+
 size(sol.t)
 typeof(sol)
 #Plots.plot([number(res[:,:,:,i]) for i in eachindex(sol.t)])
@@ -291,7 +306,7 @@ typeof(sol)
 number(sol[end])
 
 res = abs2.(Array(sol));
-Plots.heatmap(res[:,35,:,end],clims=(0,1.5),aspectratio=1)
+Plots.heatmap(res[:,75,:,end],clims=(0,1.5),aspectratio=1)
 
 for i in 1:2:length(sol_GS.t)
     P = Plots.heatmap(res[:,:,25,i],clims=(0,1.5))
@@ -321,7 +336,7 @@ end;
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,500,2)
+    tspan = LinRange(0,500,30)
 
     prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
@@ -332,14 +347,33 @@ end;
 
 CUDA.memory_status()
 size(sol)
-Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
+res = Array(sol);
+#Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 
 rizz = abs2.(Array(sol));
 riss = angle.(Array(sol));
 
-Plots.heatmap(x,x,rizz[:,35,:,2],clims=(0,1.5),aspectratio=1,c=:thermal)
+Plots.heatmap(x,x,rizz[:,65,:,,:],clims=(0,1.5),aspectratio=1,c=:greys)
 vline!([-7.1,7.1])
 Plots.heatmap(riss[:,5,:,80],clims=(0,3),aspectratio=1)
+
+E_K = [Ek(res[:,:,:,i]) for i in eachindex(sol.t)];
+
+E_Kx = [Ekx(res[:,:,:,i]) for i in eachindex(sol.t)];
+E_Ky = [Eky(res[:,:,:,i]) for i in eachindex(sol.t)];
+E_Kz = [Ekz(res[:,:,:,i]) for i in eachindex(sol.t)];
+
+E_P = [Ep(res[:,:,:,i],V(sol.t[i])) for i in eachindex(sol.t)];
+E_I = [Ei(res[:,:,:,i]) for i in eachindex(sol.t)];
+
+P = Plots.plot(sol.t,E_K,lw=1.5,label=L"E_K")
+Plots.plot!(sol.t,E_Kx,lw=1.5,label=L"E_{kx}",alpha=0.4)
+Plots.plot!(sol.t,E_Ky,lw=1.5,label=L"E_{ky}",alpha=0.4)
+Plots.plot!(sol.t,E_Kz,lw=1.5,label=L"E_{kz}",alpha=0.4)
+Plots.plot!(sol.t,E_P,lw=1.5,label=L"E_p")
+Plots.plot!(sol.t,E_I,lw=1.5,label=L"E_i")
+
+Plots.savefig(P,"Energy")
 
 for i in 1:2:length(sol.t)
     P = Plots.heatmap(x,x,rizz[:,75,:,i],clims=(0,3),aspectratio=1)#,xlims=(-15,15),c=:thermal)
@@ -549,10 +583,10 @@ begin
 
 end;
 
-t = LinRange(0,30,10);
+t = LinRange(0,30,6);
 
 probs = ODEProblem(spec_expansion_opt!,ϕ_initial,(t[1],t[end]));
-@time solt2 = solve(probs,saveat=t);#,abstol=1e-6,reltol=1e-6);
+@time solt2 = solve(probs,saveat=t,abstol=1e-8,reltol=1e-5);
 
 res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(solt2);
 
@@ -563,9 +597,10 @@ Plots.plot!(σy,ylims=(0.0,.3))
 Plots.plot!(σz,ylims=(0.0,.3))
 
 Plots.plot(Norm,ylims=(0,1.5))
+Plots.heatmap(x,x,res[2][:,:,65],aspectratio=1)#,clims=(0,2e0),c=:thermal)
 
 for i in 1:length(solt2.t)
-    P = Plots.heatmap(x,x,res[i][:,:,20],aspectratio=1)#,clims=(0,2e0),c=:thermal)
+    P = Plots.heatmap(x,x,res[i][65,:,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
     display(P)
     sleep(0.05)
 end
