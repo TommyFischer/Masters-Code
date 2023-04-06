@@ -53,7 +53,7 @@ end
 begin # Functions for making plots
 
     Ek(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*ksum.*fft(ψ)))) # E_Kinetic / μ
-    Ep(ψ,V) = ξ^3*ψ0^2 * dr*sum(V.*abs2.(ψ)) |> real # E_Potential / μ
+    Ep(ψ,V) = ξ^3*ψ0^2 * dr*sum((V_0 .+ V).*abs2.(ψ)) |> real # E_Potential / μ
     Ei(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ψ).^2) # E_Interaction / μ
 
     Ekx(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(kx).*fft(ψ)))) # x-direction E_k
@@ -322,7 +322,7 @@ typeof(ψ_GS)
 @save "GS" ψ_GS
 @load "GS" ψ_GS
 
-ΔU = 1.2
+ΔU = 1.5
 ω_shake = 2π * 0.03055 
 shakegrid = ΔU * Array(z)./(L/2) .* ones(M,M,M) |> complex;
 
@@ -336,11 +336,45 @@ end;
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,500,30)
+    tspan = LinRange(400,500,30)
 
-    prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
+    prob = ODEProblem(VPE!,ψ,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
 end;
+
+size(sol)
+typeof(sol)
+ψ = sol[:,:,:,end] |> cu;
+typeof(ψ)
+
+#sol1 = Array(sol); done
+#sol2 = Array(sol); done
+#sol3 = Array(sol); done
+#sol4 = Array(sol); done 
+#sol5 = Array(sol); done 
+
+E_k = zeros(150);
+E_p = zeros(150);
+E_i = zeros(150);
+
+res = map(x->abs2.(Array(x)),[sol1,sol2,sol3,sol4,sol5]);
+
+for i in 1:5
+    vec = res[i]
+    for j in 1:30
+        E_k[30*(i-1) + j] = Ek(vec[:,:,:,j])
+        E_p[30*(i-1) + j] = Ep(vec[:,:,:,j],V(30*(i-1) + j))
+        E_i[30*(i-1) + j] = Ei(vec[:,:,:,j])
+    end
+end
+
+
+Plots.plot(LinRange(0,500,150),E_k,label=L"Ek",ylims=(0,3e5))
+Plots.plot!(LinRange(0,500,150),E_p,label=L"Ep")
+Plots.plot!(LinRange(0,500,150),E_i,label=L"Ei")
+Plots.plot!(E_k .+ E_i .+ E_p,label=L"E_{total}")
+
+Plots.heatmap(abs2.(sol1[:,65,:,30]),clims=(0,3),aspectratio=1)
 
 @save "sol" sol 
 @load "sol" sol
@@ -561,7 +595,7 @@ end
 
 begin
 
-    ψ_0 = sol[end]
+    ψ_0 = ψ_GS#sol5[:,:,:,end]
     ϕ_initial = initialise(ψ_0)
 
     PfArray = [Pfx, Pfy, Pfz]
@@ -585,6 +619,8 @@ end;
 
 t = LinRange(0,30,6);
 
+CUDA.memory_status()
+
 probs = ODEProblem(spec_expansion_opt!,ϕ_initial,(t[1],t[end]));
 @time solt2 = solve(probs,saveat=t,abstol=1e-8,reltol=1e-5);
 
@@ -592,20 +628,22 @@ res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(solt2);
 
 Norm = [ξ^3*ψ0^2*dr*sum(res[i]) for i in eachindex(solt2.t)]
 
-Plots.plot(σx,ylims=(0.0,.3))
-Plots.plot!(σy,ylims=(0.0,.3))
-Plots.plot!(σz,ylims=(0.0,.3))
+Plots.plot(t,σx,ylims=(0.0,.3),label="σx",xlabel=(L"t/$\tau$"))
+Plots.plot!(t,σy,ylims=(0.0,.3),label="σy")
+Plots.plot!(t,σz,ylims=(0.0,.3),label="σz")
+
+
 
 Plots.plot(Norm,ylims=(0,1.5))
-Plots.heatmap(x,x,res[2][:,:,65],aspectratio=1)#,clims=(0,2e0),c=:thermal)
+Plots.heatmap(x,x,res[3][:,65,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
 
 for i in 1:length(solt2.t)
-    P = Plots.heatmap(x,x,res[i][65,:,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
+    P = Plots.heatmap(λ   x,x,res[i][65,:,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
     display(P)
     sleep(0.05)
 end
 
-@gif for i in 1:M
-    Plots.heatmap(x,x,res[end][:,:,i],aspectratio=1,clims=(0,2e0),c=:thermal)
-end
+
+Plots.heatmap(λx[end]*x,λz[end]*x,res[end][:,:,65],aspectratio=1,clims=(0,6e-5),c=:thermal)
+
 
