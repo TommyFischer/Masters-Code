@@ -1,6 +1,6 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
 
-# Last Edit:  10pm Tuesday 5th April
+# Last Edit:  12am Tuesday 7th April
 
 using PlotlyJS,
     SparseArrays,
