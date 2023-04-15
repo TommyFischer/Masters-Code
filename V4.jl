@@ -1,6 +1,6 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
 
-# Last Edit:  12am Tuesday 7th April
+# Last Edit:  12am 7th April
 
 using PlotlyJS,
     SparseArrays,
@@ -130,7 +130,7 @@ begin # Functions for making plots
     end
 
     function MakieVolume(sol,t,alpha=0.12,iso=[0.15],axis=true,col=:oxy)
-        if typeof(sol[1]) == Array{ComplexF64, 3} # Checking if input solution is already squared or not
+        if typeof(sol[1]) in (Array{ComplexF64, 3},Array{ComplexF32, 3}) # Checking if input solution is already squared or not
             density_Scaled = abs2.(sol[:,:,:,t])
         else
             density_Scaled = copy(sol[:,:,:,t])
@@ -144,7 +144,8 @@ begin # Functions for making plots
         alpha=alpha,
         levels=iso,
         colormap=col,
-        show_axis=axis)
+        #show_axis=axis
+        )
     end
 
     function MakieVolume!(sol,t,alpha=0.12,iso=[0.15],axis=true,col=:oxy)
@@ -209,10 +210,11 @@ begin # Adjustable Parameters and constants
 
     L = 36 # Box width
     M = 130 # Grid size
+    trap = "cyl" # "box" or "cyl" (cylinder)
 
     A_V = 15 # Trap height
     n_V = 24 # Trap Power (pretty much always 24)
-    L_V = 8 # no. of healing lengths for V to drop to 0.01
+    L_V = 12 # no. of healing lengths for V to drop to 0.01
     use_cuda = CUDA.functional()
 
 end
@@ -238,9 +240,14 @@ begin # Arrays
     k2 =  kx.^2 .+ ky.^2 .+ kz.^2 # 3D wave vector
     dr = dx*dy*dz
     ksum = kx .+ ky .+ kz
+
+    R_V = L/2 - L_V
+    Vbox = (trap == "box")
+    Vcyl = (trap == "cyl") 
+        
 end;
 
-begin # Box Trap Potential
+if Vbox # Box Trap Potential
 
     V_0 = zeros(M,M,M)
     Vboundary(x) = A_V*cos(x/λ)^n_V
@@ -250,13 +257,32 @@ begin # Box Trap Potential
     for i in 1:M, j in 1:M, k in 1:M
         l_x = min(2*L_V,L/2 - abs(x[i])) # Finding the distance to the edge in each dimension, 
         l_y = min(2*L_V,L/2 - abs(y[j])) # discarding if further than 2*L_V
-        l_z = min(2*L_V,L/2 - abs(y[k]))
+        l_z = min(2*L_V,L/2 - abs(z[k]))
 
         l = map(Vboundary,(l_x,l_y,l_z))
 
         V_0[i,j,k] = hypot(l[1],l[2],l[3])
     end
 end;
+
+if Vcyl # Cylinder Trap Potential
+
+    V_0 = zeros(M,M,M)
+    Vboundary(x) = A_V*cos(x/λ)^n_V
+
+    λ = L_V/acos(0.01^(1/n_V))
+    
+    for i in 1:M, j in 1:M, k in 1:M
+        l_z = min(2*L_V,L/2 - abs(z[k]))
+        l_r = min(2*L_V,L/2 - hypot(x[i],y[j]))
+
+        l = map(Vboundary,(l_z,l_r))
+
+        V_0[i,j,k] = hypot(l[1],l[2])
+    end
+end;
+
+Plots.heatmap(x,x,abs2.(V_0[:,:,65]),aspectratio=1,clims=(0,500))
 
 ψ_rand = (randn(M,M,M) + im*randn(M,M,M));
 ψ_ones = ones(M,M,M) |> complex;
@@ -292,8 +318,8 @@ begin
     @time sol = solve(prob,saveat=tspan)
 end;
 
-typeof(res)
 res = Array(sol);
+typeof(res)
 
 Ei(res[:,:,:,2])*1e-4
 Ek(res[:,:,:,2])*1e-4
@@ -304,9 +330,8 @@ typeof(sol)
 #Plots.plot([number(res[:,:,:,i]) for i in eachindex(sol.t)])
 
 number(sol[end])
-
 res = abs2.(Array(sol));
-Plots.heatmap(res[:,75,:,end],clims=(0,1.5),aspectratio=1)
+Plots.heatmap(res[:,:,65,end],clims=(0,1.2),aspectratio=1)
 
 for i in 1:2:length(sol_GS.t)
     P = Plots.heatmap(res[:,:,25,i],clims=(0,1.5))
@@ -334,24 +359,17 @@ if use_cuda
     ψ_noise = ψ_noise |> cu
 end;
 
+CUDA.memory_status()
+
 begin 
     γ = 0.0005
-    tspan = LinRange(400,500,30)
+    tspan = LinRange(0,500,5)
 
-    prob = ODEProblem(VPE!,ψ,(tspan[1],tspan[end]))    
+    prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
 end;
 
-size(sol)
-typeof(sol)
-ψ = sol[:,:,:,end] |> cu;
-typeof(ψ)
-
-#sol1 = Array(sol); done
-#sol2 = Array(sol); done
-#sol3 = Array(sol); done
-#sol4 = Array(sol); done 
-#sol5 = Array(sol); done 
+CUDA.memory_status()
 
 E_k = zeros(150);
 E_p = zeros(150);
@@ -372,9 +390,9 @@ end
 Plots.plot(LinRange(0,500,150),E_k,label=L"Ek",ylims=(0,3e5))
 Plots.plot!(LinRange(0,500,150),E_p,label=L"Ep")
 Plots.plot!(LinRange(0,500,150),E_i,label=L"Ei")
-Plots.plot!(E_k .+ E_i .+ E_p,label=L"E_{total}")
+Plots.plot!(LinRange(0,500,150),E_k .+ E_i .+ E_p,label=L"E_{total}")
 
-Plots.heatmap(abs2.(sol1[:,65,:,30]),clims=(0,3),aspectratio=1)
+Plots.heatmap(abs2.(sol5[:,65,:,24]),clims=(0,3),aspectratio=1)
 
 @save "sol" sol 
 @load "sol" sol
@@ -382,6 +400,19 @@ Plots.heatmap(abs2.(sol1[:,65,:,30]),clims=(0,3),aspectratio=1)
 CUDA.memory_status()
 size(sol)
 res = Array(sol);
+res = zeros(70,70,70,30) |> complex;
+for i in 1:30
+    res[:,:,:,i] .= sol[:,:,:,i]
+end
+
+res64 = ComplexF64.(res);
+Makie.inline!(false)
+
+using CairoMakie
+
+MakieVolume(abs2.(res64),1)
+
+Plots.heatmap(abs2.(res[:,:,33,8]),aspectratio=1)
 #Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 
 rizz = abs2.(Array(sol));
@@ -595,7 +626,7 @@ end
 
 begin
 
-    ψ_0 = ψ_GS#sol5[:,:,:,end]
+    ψ_0 = ψ_GS#sol[:,:,:,end]
     ϕ_initial = initialise(ψ_0)
 
     PfArray = [Pfx, Pfy, Pfz]
@@ -632,18 +663,12 @@ Plots.plot(t,σx,ylims=(0.0,.3),label="σx",xlabel=(L"t/$\tau$"))
 Plots.plot!(t,σy,ylims=(0.0,.3),label="σy")
 Plots.plot!(t,σz,ylims=(0.0,.3),label="σz")
 
-
-
 Plots.plot(Norm,ylims=(0,1.5))
-Plots.heatmap(x,x,res[3][:,65,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
+Plots.heatmap(x,x,res[6][:,:,35],aspectratio=1,clims=(0,1.8e-5),c=:thermal)
 
-for i in 1:length(solt2.t)
-    P = Plots.heatmap(λ   x,x,res[i][65,:,:],aspectratio=1)#,clims=(0,2e0),c=:thermal)
-    display(P)
-    sleep(0.05)
+begin
+    t = 6
+    Plots.heatmap(x*λx[t],x*λy[t],res[t][:,:,35],aspectratio=1,clims=(0,1.8e-5),c=:thermal)
 end
-
-
-Plots.heatmap(λx[end]*x,λz[end]*x,res[end][:,:,65],aspectratio=1,clims=(0,6e-5),c=:thermal)
 
 
