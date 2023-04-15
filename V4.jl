@@ -191,9 +191,7 @@ begin # Functions for making plots
     end
 end
 
-
 ############################################ Leshgo ##########################################
-
 
 begin # Adjustable Parameters and constants 
 
@@ -209,7 +207,7 @@ begin # Adjustable Parameters and constants
     τ = ħ/μ
 
     L = 36 # Box width
-    M = 130 # Grid size
+    M = 150 # Grid size
     trap = "cyl" # "box" or "cyl" (cylinder)
 
     A_V = 15 # Trap height
@@ -282,7 +280,7 @@ if Vcyl # Cylinder Trap Potential
     end
 end;
 
-Plots.heatmap(x,x,abs2.(V_0[:,:,65]),aspectratio=1,clims=(0,500))
+Plots.heatmap(x,x,abs2.(V_0[:,:,75]),aspectratio=1,clims=(0,500))
 
 ψ_rand = (randn(M,M,M) + im*randn(M,M,M));
 ψ_ones = ones(M,M,M) |> complex;
@@ -308,6 +306,8 @@ else
     const Pi! = M^3*dkx*dky*dkz/(2π)^1.5*plan_ifft!(copy(ψ_rand),flags=FFTW.MEASURE);
 end
 
+CUDA.memory_status()
+
 ############################################ Finding Ground State ##########################################
 
 begin 
@@ -321,17 +321,13 @@ end;
 res = Array(sol);
 typeof(res)
 
-Ei(res[:,:,:,2])*1e-4
-Ek(res[:,:,:,2])*1e-4
-Ep(res[:,:,:,2],Array(V_0))*1e-4
-
 size(sol.t)
 typeof(sol)
 #Plots.plot([number(res[:,:,:,i]) for i in eachindex(sol.t)])
 
 number(sol[end])
 res = abs2.(Array(sol));
-Plots.heatmap(res[:,:,65,end],clims=(0,1.2),aspectratio=1)
+Plots.heatmap(res[:,:,75,end],clims=(0,1.2),aspectratio=1)
 
 for i in 1:2:length(sol_GS.t)
     P = Plots.heatmap(res[:,:,25,i],clims=(0,1.5))
@@ -363,7 +359,7 @@ CUDA.memory_status()
 
 begin 
     γ = 0.0005
-    tspan = LinRange(0,500,5)
+    tspan = LinRange(0,500,10)
 
     prob = ODEProblem(VPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol = solve(prob,saveat=tspan)
@@ -397,22 +393,15 @@ Plots.heatmap(abs2.(sol5[:,65,:,24]),clims=(0,3),aspectratio=1)
 @save "sol" sol 
 @load "sol" sol
 
-CUDA.memory_status()
 size(sol)
 res = Array(sol);
+
 res = zeros(70,70,70,30) |> complex;
 for i in 1:30
     res[:,:,:,i] .= sol[:,:,:,i]
 end
 
-res64 = ComplexF64.(res);
-Makie.inline!(false)
-
-using CairoMakie
-
-MakieVolume(abs2.(res64),1)
-
-Plots.heatmap(abs2.(res[:,:,33,8]),aspectratio=1)
+Plots.heatmap(abs2.(res[:,75,:,10]),aspectratio=1)
 #Plots.plot([number(sol[:,:,:,i]) for i in eachindex(sol.t)],ylims=(0,5e5))
 
 rizz = abs2.(Array(sol));
@@ -423,7 +412,6 @@ vline!([-7.1,7.1])
 Plots.heatmap(riss[:,5,:,80],clims=(0,3),aspectratio=1)
 
 E_K = [Ek(res[:,:,:,i]) for i in eachindex(sol.t)];
-
 E_Kx = [Ekx(res[:,:,:,i]) for i in eachindex(sol.t)];
 E_Ky = [Eky(res[:,:,:,i]) for i in eachindex(sol.t)];
 E_Kz = [Ekz(res[:,:,:,i]) for i in eachindex(sol.t)];
@@ -455,7 +443,7 @@ using QuantumFluidSpectra
 
 X = map(Array,(x,x,x));
 K = map(Array,(kx,kx,kx));
-ψ = ComplexF64.(Array(ψ_GS));
+ψ = ComplexF64.(Array(sol[end]));
 
 E = zeros(100,10)
 
@@ -473,7 +461,7 @@ E[:,1] .= E_i
 
 k_L = 2π/(L)# Size of the System
 k_l = 2π/(L - 2*L_V) # Size of the condensate accounting for the box trap
-k_hmm = 0.44#2π/14
+k_hmm = π#2π/14
 k_ξ = 2π# Healing length
 k_dr = 2π/dr^(1/3) # Geometric mean of resolution
 k_lol = 2π/hypot(dx,dx,dx)
@@ -482,8 +470,8 @@ k_lol = 2π/hypot(dx,dx,dx)
 
 begin
     P = Plots.plot(k,E_i,axis=:log,ylims=(0.1,10^7),label=false,lw=2,alpha=0.5)
-    Plots.plot!(x->(2e3)*x^-3,[x for x in k[40:75]],label=false,alpha=1,lw=.5)
-    Plots.plot!(x->(2e2)*x^0,[x for x in k[15:50]],label=false,alpha=1,lw=.5)
+    Plots.plot!(x->(4e4)*x^-3.6,[x for x in k[45:75]],label=false,alpha=1,lw=.5)
+    Plots.plot!(x->(2e2)*x^1,[x for x in k[15:55]],label=false,alpha=1,lw=.5)
 
     #for i in klines
     #    vline!([i], label = (@Name i),linestyle=:dash,alpha=0.5)
@@ -626,7 +614,7 @@ end
 
 begin
 
-    ψ_0 = ψ_GS#sol[:,:,:,end]
+    ψ_0 = sol[:,:,:,end]
     ϕ_initial = initialise(ψ_0)
 
     PfArray = [Pfx, Pfy, Pfz]
@@ -648,7 +636,7 @@ begin
 
 end;
 
-t = LinRange(0,30,6);
+t = LinRange(0,30,5);
 
 CUDA.memory_status()
 
@@ -667,8 +655,8 @@ Plots.plot(Norm,ylims=(0,1.5))
 Plots.heatmap(x,x,res[6][:,:,35],aspectratio=1,clims=(0,1.8e-5),c=:thermal)
 
 begin
-    t = 6
-    Plots.heatmap(x*λx[t],x*λy[t],res[t][:,:,35],aspectratio=1,clims=(0,1.8e-5),c=:thermal)
+    t = 5
+    Plots.heatmap(x*λx[t],x*λz[t],res[t][:,75,:],aspectratio=1,clims=(0,3e-5),c=:thermal)
 end
 
 
