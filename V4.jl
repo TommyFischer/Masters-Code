@@ -760,10 +760,6 @@ end
 
 #-------------------------- Spectra -----------------------------------------------------
 
-# res = GS
-# res1 = turb
-# res2 = relax
-
 X = map(Array,(x,reshape(y,My),reshape(z,Mz)));
 K = map(Array,(kx,reshape(ky,My),reshape(kz,My)));
 ψ = ComplexF64.(res2[:,:,:,1]);
