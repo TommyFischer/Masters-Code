@@ -24,6 +24,8 @@ using PlotlyJS,
 @fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
 Threads.nthreads()
 
+CUDA.memory_status()
+
 begin # Functions for setting up and running simulations
 
     function number(ψ)
@@ -37,17 +39,17 @@ begin # Functions for setting up and running simulations
 
     function GPE!(dψ,ψ,var,t) # GPE Equation 
         kfunc_opt!(dψ,ψ)
-        @. dψ = -(im + γ)*(0.5*dψ + (V_0 + G*abs2(ψ) - 1)*ψ)
+        @. dψ = -(im + γ)*(0.5*dψ + (V_0 + abs2(ψ) - 1)*ψ)
     end
 
     function NDVPE!(dψ,ψ,var,t) # GPE Equation 
         kfunc_opt!(dψ,ψ)
-        @. dψ = -im*(0.5*dψ + (V_0 +  $V(t) + G*abs2(ψ))*ψ)
+        @. dψ = -im*(0.5*dψ + (V_0 +  $V(t) + abs2(ψ))*ψ)
     end
 
     function VPE!(dψ,ψ,var,t) # GPE Equation 
         kfunc_opt!(dψ,ψ)
-        @. dψ = -(im + γ)*(0.5*dψ + (V_0 +  $V(t) + G*abs2(ψ) - 1)*ψ)
+        @. dψ = -(im + γ)*(0.5*dψ + (V_0 +  $V(t) + abs2(ψ) - 1)*ψ)
     end
 
     function kfunc_opt!(dψ,ψ)
@@ -226,28 +228,27 @@ begin # Adjustable Parameters and constants
     ξ = ħ/sqrt(m*μ)
     ψ0 = sqrt(μ/g) #sqrt(N/ξ^3) 
     τ = ħ/μ
-    G = 1 #4π*N*a_s/ξ
 
-    Lx = 25 #6*sqrt(2)/ω_x
+    Lx = 20#6*sqrt(2)/ω_x
     Ly = 20 #6*sqrt(2)/ω_y
-    Lz = 15 #6*sqrt(2)/ω_z
+    Lz = 20 #6*sqrt(2)/ω_z
 
-    Mx = 128 # Grid sizes
-    My = 128
-    Mz = 128
+    Mx = 64 # Grid sizes
+    My = 64
+    Mz = 64
 
-    A_V = 15 # Trap height
-    n_V = 24 # Trap Power (pretty much always 24)
-    L_V = 6
-    L_P = 10 # no. of healing lengths for V to drop to 0.01A_V (amount of padding)
+    A_V = 60    # Trap height
+    n_V = 24    # Trap Power (pretty much always 24)
+    L_V = 8    # No. of healing lengths for V to drop from A_V to 0.01A_V 
+    L_P = 8     # Amount of padding outside trap (for expansion)
     use_cuda = CUDA.functional()
 end
 
 begin # Arrays
 
-    x = LinRange(-Lx/2 - (L_P + 2L_V),Lx/2 + (L_P + 2L_V),Mx) |> collect
-    y = LinRange(-Ly/2 - (L_P + 2L_V),Ly/2 + (L_P + 2L_V),My)' |> collect
-    z = LinRange(-Lz/2 - (L_P + 2L_V),Lz/2 + (L_P + 2L_V),Mz)
+    x = LinRange(-Lx/2 - (L_P + L_V),Lx/2 + (L_P + L_V),Mx) |> collect
+    y = LinRange(-Ly/2 - (L_P + L_V),Ly/2 + (L_P + L_V),My)' |> collect
+    z = LinRange(-Lz/2 - (L_P + L_V),Lz/2 + (L_P + L_V),Mz)
     z = reshape(z,(1,1,Mz)) |> collect
 
     dx = x[2] - x[1]
@@ -279,13 +280,19 @@ if Vbox
 
     for i in 1:Mx, j in 1:My, k in 1:Mz
         if (abs(x[i]) > 0.5*Lx + L_V) || (abs(y[j]) > 0.5*Ly + L_V) || (abs(z[k]) > 0.5*Lz + L_V) # V = A_V at edges
-            V_0[i,j,k] = A_V + 0.05*(max(0,abs(x[i]) - (0.5*Lx + L_V)) + max(0,abs(y[j]) - (0.5*Ly + L_V)) + max(0,abs(z[k]) - (0.5*Lz + L_V)))
+            V_0[i,j,k] = A_V #+ 0.5*(max(0,abs(x[i]) - (0.5*Lx + L_V)) + max(0,abs(y[j]) - (0.5*Ly + L_V)) + max(0,abs(z[k]) - (0.5*Lz + L_V)))
         else
-            lx = L_V - max(0.0,abs(x[i]) - 0.5*Lx) # Finding the distance from the centre in each direction, 
-            ly = L_V - max(0.0,abs(y[j]) - 0.5*Ly) # discarding if small
-            lz = L_V - max(0.0,abs(z[k]) - 0.5*Lz)
+            lx = L_V + π*λ/4 - max(0.0,abs(x[i]) - (0.5*Lx - π*λ/4)) # Finding the distance from the centre in each direction, 
+            ly = L_V + π*λ/4 - max(0.0,abs(y[j]) - (0.5*Ly - π*λ/4)) # discarding if small
+            lz = L_V + π*λ/4 - max(0.0,abs(z[k]) - (0.5*Lz - π*λ/4))
         
-            V_0[i,j,k] = Vboundary(min(lx,ly,lz))
+            #V_0[i,j,k] = Vboundary(min(lx,ly,lz))
+            V_0[i,j,k] = hypot(Vboundary(lx),Vboundary(ly),Vboundary(lz))
+            #V_0[i,j,k] = Vboundary(smin(smin(lx,ly,V_k),lz,V_k))
+            #V_0[i,j,k] = (Vboundary(lx),Vboundary(ly),V_k),Vboundary(lz),V_k)
+            if V_0[i,j,k] > A_V
+                V_0[i,j,k] = A_V
+            end
         end
     end
 end;
@@ -312,15 +319,18 @@ if Vharm
     ψ_gauss = [exp(-0.5*(ω_x*i^2 + ω_y*j^2 + ω_z*k^2)) for i in x, j in reshape(y,My), k in reshape(z,Mz)]  .|> ComplexF32;
 end;
 
-Plots.heatmap(x,reshape(y,My),(V_0[:,:,64]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
-Plots.heatmap(x,reshape(z,Mz),(V_0[:,64,:]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"))
+Plots.heatmap(x,reshape(y,My),(V_0[:,:,32]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
+Plots.heatmap(x,reshape(z,Mz),(V_0[:,32,:]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"))
 
-Plots.plot(x,V_0[:,64,64]./A_V,xlabel = L"x",lw=2,ylabel=L"V/A_V",label = false)
+Plots.plot(x,V_0[:,32,32],xlabel = L"x",lw=2,ylabel=L"V/A_V",label = false)
+#xlims!(-0.5*Lx - L_V - 1, -0.5*Lx - L_V + 1)
+#ylims!(58,62)
 vline!([-0.5*Lx,0.5*Lx],alpha = 0.8,label = L"±0.5*Lx")
 vline!([-0.5*Lx - L_V,0.5*Lx + L_V],alpha = 0.8,label = L"±(0.5Lx + L_V)")
+vline!([-0.5*Lx + λ*π/4, 0.5*Lx - λ*π/4])
 
 ψ_TF = 1/sqrt(N)*[max(0,1-V_0[i,j,k]) for i in 1:Mx, j in 1:My, k in 1:Mz] |> complex;
-ψ_rand = (randn(Mx,My,Mz) + im*randn(Mx,My,Mz));
+ψ_rand = (rand(Mx,My,Mz) + im*rand(Mx,My,Mz));
 ψ_ones = ones(Mx,My,Mz) |> complex;
 
 if use_cuda # Transforming arrays
@@ -349,44 +359,56 @@ CUDA.memory_status()
 
 #-------------------------- Finding Ground State -----------------------------------------
 
+tees = [50]
+con(u, t, integrator) = t ∈ tees
+function affect!(integrator)
+    cbres[:,:,:,Int(round(integrator.t))] .= Array(integrator.u)
+    println("callback at t = $(time() - t0)")
+end
+cb = DiscreteCallback(con,affect!)
+
+cbres = zeros(Mx,My,Mz,5) .|> ComplexF32;
+
 begin
     γ = 1
-    tspan = LinRange(0.0,20,2); 
+    tspan = LinRange(0.0,40,5); 
 
-    prob = ODEProblem(GPE!,ψ_ones,(tspan[1],tspan[end]))    
-    @time sol = solve(prob,saveat=tspan)
+    t0 = time()
+    prob = ODEProblem(GPE!,ψ_rand,(tspan[1],tspan[end]))   
+    @time prob = solve(prob,callback=cb)#saveat=tspan)#,save_everystep = false, save_start = false, save_end = false);#,callback=cb)
 end;
 
+size(sol)
 res = Array(sol);
 ψ_GS = res[:,:,:,end]; #sol[:,:,:,end];
 
 @save "GS" ψ_GS
 @load "GS" ψ_GS
 
-Norm = [number(res[:,:,:,i]) for i in 1:2];
-Plots.plot(Norm,ylims=(0,50*Norm[end]))
+Norm = [number(res[:,:,:,i]) for i in 1:5];
+Plots.plot(Norm,ylims=(0,15*Norm[end]))
 
-Plots.heatmap(x,reshape(y,My),abs2.(res[:,:,64,2]'),clims=(0,2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),right_margin=8mm)
+Plots.heatmap(x,reshape(y,My),abs2.(res[:,:,64,5]'),clims=(0,2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),right_margin=8mm)
 vline!([-0.5*Lx,0.5*Lx],label = "±Lx/2",width=2,alpha=0.3)
 hline!([-0.5*Ly,0.5*Ly],label = "±Ly/2",width=2,alpha=0.3)
 
-Plots.heatmap(x,reshape(z,Mz),abs2.(res[:,64,:,2]'),clims=(0,2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm)
+Plots.heatmap(x,reshape(z,Mz),abs2.(res[:,64,:,5]'),clims=(0,2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm)
 vline!([-0.5*Lx,0.5*Lx],label = "±Lx/2",width=2,alpha=0.3)
 hline!([-0.5*Lz,0.5*Lz],label = "±Lz/2",width=2,alpha=0.3)
 
 #-------------------------- Creating Turbulence ------------------------------------------
 
-ΔU = .3
+ΔU = 1
 ω_shake = 2π * 0.03055 
 shakegrid = ΔU * Array(z)./(0.5*Lz) .* ones(Mx,My,Mz) |> complex;
 
 V(t) = sin(ω_shake*t)*shakegrid
 
-noisegrid = randn(Mx,My,Mz) + im*randn(Mx,My,Mz)
-ψ_noise = ψ_GS .+ .01*maximum(abs.(ψ_GS))*noisegrid; 
+noisegrid = randn(Mx,My,Mz) + im*randn(Mx,My,Mz);
+ψ_noise = ψ_GS;# .+ .01*maximum(abs.(ψ_GS))*noisegrid; 
 number(ψ_noise)
 
-Plots.heatmap(abs2.(ψ_noise[:,:,64]),clims = (0,1.3))
+Plots.heatmap(abs2.(ψ_noise[:,64,:]'),clims = (0,1.3),aspectratio=1)
 
 if use_cuda
     shakegrid = shakegrid |> cu
@@ -397,31 +419,30 @@ CUDA.memory_status()
 
 begin 
     γ = 5e-4
-    tspan = LinRange(0,1.5/τ,250)
+    tspan = LinRange(0,2.0/τ,5)
 
     prob = ODEProblem(NDVPE!,ψ_noise,(tspan[1],tspan[end]))    
-    @time sol2 = solve(prob,saveat=tspan)
+    @time sol2 = solve(prob,saveat=tspan,reltol=1e-5)
 end;
 
 CUDA.memory_status()
 
-res1 = zeros(Mx,My,Mz,250) |> complex
-for i in 1:250
-    res1[:,:,:,i] .= sol2[:,:,:,i]#Array(sol2);
-end;
-
+res1 = Array(sol2);
 tvec = Array(sol2.t);
 
-res1[:,:,:,1] .= Array(ψ_GS);
+#res1[:,:,:,1] .= Array(ψ_GS);
 ψ_turb = res1[:,:,:,end];
 
-Norm1 = [number(res1[:,:,:,i]) for i in 1:150];
+Norm1 = [number(res1[:,:,:,i]) for i in 1:5];
 Plots.plot(Norm1,ylims=(0,1e4))
 
-Plots.heatmap(x,reshape(y,My),abs.(res1[:,:,64,2]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1.5),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
-Plots.heatmap(x,reshape(z,Mz),abs2.(res1[:,64,:,30]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1.5),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm)
+Plots.heatmap(x,reshape(y,My),abs.(res1[:,:,64,5]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1.5),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
+Plots.heatmap(x,reshape(z,Mz),abs2.(res1[:,64,:,5]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1.5),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm)
 
-Plots.plot(abs.(res1[:,10,10,4]),ylims=(0,1),ylabel ="|ψ(x,y = -Ly, z = -Lz)|",xlabel="x",title = "t = 2/τ")
+using VortexDistibutions
+
+Plots.plot(x,abs.(res1[:,64,64,5]),ylims=(0,0.01),ylabel ="|ψ(x,y = -Ly, z = -Lz)|",xlabel="x",title = "t = 2/τ")
+vline!([-0.5*Lx - L_V,0.5*Lx + L_V])
 
 begin # Energy Plots
     E_K = [Ek(res1[:,:,:,i]) for i in eachindex(res1[1,1,1,:])];
@@ -760,6 +781,10 @@ end
 
 #-------------------------- Spectra -----------------------------------------------------
 
+# res = GS
+# res1 = turb
+# res2 = relax
+
 X = map(Array,(x,reshape(y,My),reshape(z,Mz)));
 K = map(Array,(kx,reshape(ky,My),reshape(kz,My)));
 ψ = ComplexF64.(res2[:,:,:,1]);
@@ -794,3 +819,53 @@ begin # Plots
     vline!([k_dx], label = L"$k_{lol}$",linestyle=:dash,alpha=0.5)
 end
 
+
+
+
+
+
+
+function smin(a, b, k)
+    h = clamp(0.5 + 0.5*(a-b)/k, 0.0, 1.0);
+    return (a*(1 -h) + b*(h)) - k*h*(1.0-h);
+end;
+
+function smax(args,α)
+    return sum(x -> x*exp(α*x),args)/sum(x -> exp(α*x),args)
+end
+
+begin
+    xxx = -2:0.01:2
+    α = 3
+    aa(x) = sin(4x)
+    bb(x) = exp(-x^2) - 1
+    cc(x) = 1.5x + .2
+
+    dd(x) = smin(smin(aa(x),bb(x),α),cc(x),α),#[smin([aa.(xxx)[i],bb.(xxx)[i],cc.(xxx)[i]],α) for i in 1:length(xxx)]
+
+    Plots.plot(aa,lw=2,alpha=0.3,linestyle=:dash)
+    Plots.plot!(bb,lw=2,alpha=0.3,linestyle=:dash,)
+    Plots.plot!(cc,lw=2,alpha=0.3,linestyle=:dash)
+    Plots.plot!(dd,lw=2,alpha=0.7)
+    xlims!(-2,2)
+    ylims!(-2,2)
+end
+
+begin # Box Trap Potential
+
+    V_0 = zeros(Mx,My,Mz) 
+    Vboundary(x) = A_V*cos(x/λ)^n_V 
+
+    λ = L_V/acos(0.01^(1/n_V))
+    
+    for i in 1:Mx, j in 1:My, k in 1:Mz
+        l_x = min(2*L_V,Lx/2 - abs(x[i])) # Finding the distance to the edge in each dimension, 
+        l_y = min(2*L_V,Ly/2 - abs(y[j])) # discarding if further than 2*L_V
+        l_z = min(2*L_V,Lz/2 - abs(y[k]))
+
+        l = map(Vboundary,(l_x,l_y,l_z))
+
+        V_0[i,j,k] = hypot(l[1],l[2],l[3])
+    end
+    V_0 = cu(V_0)
+end;
