@@ -34,7 +34,7 @@ g = 4π*ħ^2*a_s/m
 τ = ħ/μ
 
 const L = (25,25,25)     # Condensate size
-const M = (200,200,200)  # System Grid
+const M = (100,100,100)  # System Grid
 
 A_V = 15    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)

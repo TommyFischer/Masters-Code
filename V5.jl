@@ -19,21 +19,25 @@ function kfunc!(dψ,ψ) # Kinetic Energy term (no rotating frame)
 end
 
 function NDGPE!(dψ,ψ,var,t) # GPE Equation without damping or chemical potential
+    γ = var
     kfunc_opt!(dψ,ψ)
     @. dψ = -im*(0.5*dψ + (V_0 + abs2(ψ))*ψ)
 end
 
 function GPE!(dψ,ψ,var,t) # GPE Equation 
+    γ = var
     kfunc_opt!(dψ,ψ)
     @. dψ = -(im + γ)*(0.5*dψ + (V_0 + abs2(ψ) - 1)*ψ)
 end
 
 function NDVPE!(dψ,ψ,var,t) # GPE Equation 
+    γ = var
     kfunc_opt!(dψ,ψ)
     @. dψ = -im*(0.5*dψ + (V_0 +  $V(t) + abs2(ψ))*ψ)
 end
 
 function VPE!(dψ,ψ,var,t) # GPE Equation 
+    γ = var
     kfunc_opt!(dψ,ψ)
     @. dψ = -(im + γ)*(0.5*dψ + (V_0 +  $V(t) + abs2(ψ) - 1)*ψ)
 end
@@ -45,7 +49,7 @@ function kfunc_opt!(dψ,ψ)
     return nothing
 end
 
-function GPU_Solve!(savearray,EQ!, ψ, tspan; reltol = 1e-5, abstol = 1e-6, plot_progress = true, print_progress = false,alg = auto)
+function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, plot_progress = true, print_progress = false,alg = auto)
     
     if plot_progress # Setup for plot of progress
         t_elapsed = zeros(length(tspan))
@@ -106,7 +110,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan; reltol = 1e-5, abstol = 1e-6, plot
     i = 1                                           # Counter for saving states
     tprev = time()                                  # Timer for tracking progress
         
-    prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]))   
+    prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]),γ)   
     solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_start = false, save_everystep = false, save_end = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
@@ -144,13 +148,15 @@ function BoxTrap(X,L,M,L_V,A_V,n_V);
     Vboundary(x) = A_V*cos(x/λ)^n_V
     λ = L_V/acos(0.01^(1/n_V))
 
+    Xarray = Array.(X)
+
     for i in 1:M[1], j in 1:M[2], k in 1:M[3]
-        if (abs(X[1][i]) > 0.5*L[1] + L_V) || (abs(X[2][j]) > 0.5*L[2] + L_V) || (abs(X[3][k]) > 0.5*L[3] + L_V) # V = A_V at edges
+        if (abs(Xarray[1][i]) > 0.5*L[1] + L_V) || (abs(Xarray[2][j]) > 0.5*L[2] + L_V) || (abs(Xarray[3][k]) > 0.5*L[3] + L_V) # V = A_V at edges
             V_0[i,j,k] = A_V
         else
-            lx = L_V + π*λ/4 - max(0.0,abs(X[1][i]) - (0.5*L[1] - π*λ/4)) # Finding the distance from the centre in each direction, 
-            ly = L_V + π*λ/4 - max(0.0,abs(X[2][j]) - (0.5*L[2] - π*λ/4)) # discarding if small
-            lz = L_V + π*λ/4 - max(0.0,abs(X[3][k]) - (0.5*L[3] - π*λ/4))
+            lx = L_V + π*λ/4 - max(0.0,abs(Xarray[1][i]) - (0.5*L[1] - π*λ/4)) # Finding the distance from the centre in each direction, 
+            ly = L_V + π*λ/4 - max(0.0,abs(Xarray[2][j]) - (0.5*L[2] - π*λ/4)) # discarding if small
+            lz = L_V + π*λ/4 - max(0.0,abs(Xarray[3][k]) - (0.5*L[3] - π*λ/4))
         
             V_0[i,j,k] = hypot(Vboundary(lx),Vboundary(ly),Vboundary(lz))
 

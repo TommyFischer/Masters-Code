@@ -37,7 +37,7 @@ g = 4π*ħ^2*a_s/m
 τ = ħ/μ
 
 const L = (25,25,25)     # Condensate size
-const M = (150,150,150)  # System Grid
+const M = (100,100,100)  # System Grid
 
 A_V = 15    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)
@@ -63,11 +63,13 @@ const Pi! = prod(@. M * dK / sqrt(2π)) * plan_ifft!(copy(ψ_rand));
 
 #------------------------------- Finding Ground State ------------------------------
 
-function save_func(res)
-    return res[end]
+function save_func(res,d)
+    wsave(datadir("simulations",savename(d,"jld2")),Dict("res" => res))
+    push!(SOLS_GS,res)  
 end
 
 GSparams = Dict(
+    "title" => "GS $M, $L"
     "ψ" => ψ_rand,
     "γ" => [1],
     "tf" => [20],
@@ -79,12 +81,21 @@ SOLS_GS = []
 for (i,d) in enumerate(GSparams)
     println("sim $i / $(length(GSparams))")
     @unpack ψ, γ, tf, Nt = d
-    res = Watson_sim(ψ,LinRange(0,tf,Nt),"GS",γ)
-    push!(SOLS_GS,res)
+    res = []
+    GPU_Solve!(res,GPE!,ψ_rand,LinRange(0,tf,Nt),γ,alg=Tsit5())
+    save_func(res,d)
+    println(d["title"])
 end
 
-ψ_GS = SOLS_GS[end] |> cu;
-Plots.heatmap(abs2.(ψ_GS)[:,75,:],aspectratio=1)
+ψ_GS = SOLS_GS[end][end];
+Plots.heatmap(abs2.(ψ_GS)[:,50,:],aspectratio=1)
+
+load_GS = collect_results(datadir("simulations"))
+
+GS = load_GS[!,1]
+typeof(GS)
+
+Plots.heatmap(abs2.(GS[1][5])[:,50,:])
 
 #------------------------------- Creating Turbulence ------------------------------
 
