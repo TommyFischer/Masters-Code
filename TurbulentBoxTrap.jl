@@ -205,6 +205,8 @@ begin # Spectra Plots
     vline!([k_dx], label = false,linestyle=:dash,alpha=0.5,c=:black)
 end
 
+
+
 res = cat(res_turb,res_relax,dims=1); # Energy Plots
 length(res)
 typeof(res)

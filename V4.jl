@@ -1,5 +1,4 @@
 # 1/4/23 Spectral expansion is working, now just writing a clean version that can be cuda or normal using a single command + will tidy up
-
 # Last Edit:  4:30pm 19th April
 
 using PlotlyJS,
@@ -19,10 +18,13 @@ using PlotlyJS,
     #CodecZlib,
     BenchmarkTools,
     #RecursiveArrayTools,
-    CUDA
+    CUDA,
+    Adapt
 
 @fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
 Threads.nthreads()
+
+CUDA.memory_status()
 
 CUDA.memory_status()
 
@@ -33,8 +35,13 @@ begin # Functions for setting up and running simulations
     end
 
     function kfunc!(dψ,ψ) # Kinetic Energy term (no rotating frame)
-        dψ .= 0.5*(ifft(k2.*fft(ψ)))
+        dψ .= 0.5*(ifft(k2.*fft(ψ))) 
         return nothing
+    end
+
+    function NDGPE!(dψ,ψ,var,t) # GPE Equation 
+        kfunc_opt!(dψ,ψ)
+        @. dψ = -im(0.5*dψ + (V_0 + abs2(ψ))*ψ)
     end
 
     function GPE!(dψ,ψ,var,t) # GPE Equation 
@@ -58,17 +65,207 @@ begin # Functions for setting up and running simulations
         Pi!*dψ
         return nothing
     end
+
+    function GPU_Solve!(savearray,EQ!, ψ, tspan; reltol = 1e-5, abstol = 1e-6, plot_progress = true, print_progress = false,alg = auto)
+        
+
+        if plot_progress # Setup for plot of progress
+            t_elapsed = zeros(length(tspan))
+        end
+            
+        savepoints = tspan[2:end]  
+        condition(u, t, integrator) = t ∈ savepoints
+        
+            function affect!(integrator)                    # Function which saves states to CPU + makes plots / printouts if required
+    
+                i += 1
+
+                if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
+                    push!(savearray,Array(integrator.u))
+                else
+                    push!(savearray,ArrayPartition(Array(integrator.u.x[1]),Array(integrator.u.x[2])))
+                end    
+                       
+                if print_progress
+                    println("Save $(i - 1) / $(length(tspan) - 1) at t = ", integrator.t, " s")     
+                    println("Actual time elapsed = $(time() - tprev) s")
+                    println("")
+                end
+                
+                if plot_progress
+                    t_elapsed[i] = time() - tprev + t_elapsed[i - 1]
+                    P = Plots.plot(tspan,t_elapsed,
+                            ylims=(0,1.5*t_elapsed[i]),
+                            xlabel="Simulated Time",
+                            ylabel="Time Elapsed",
+                            label = false,
+                            lw = 2,
+                            fill=true,
+                            fillalpha=0.5,
+                            c=:orange,
+                            framestyle = :box
+                            )
+                
+                    vline!(savepoints,
+                        linestyle=:dash,
+                        alpha = 0.3,
+                        c=:black,
+                        label = "Savepoints")
+
+                    display(P)
+                end
+                
+                tprev = time()
+            end
+
+        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
+            push!(savearray,Array(ψ))
+        else
+            push!(savearray,ψ)
+        end
+                    
+        cb = DiscreteCallback(condition, affect!)       # Callback Function 
+        i = 1                                           # Counter for saving states
+        tprev = time()                                  # Timer for tracking progress
+            
+        prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]))   
+        solve(prob, callback=cb, tstops = savepoints, save_start = false, save_everystep = false, save_end = false,abstol=abstol,reltol=reltol,alg=alg)
+    end
 end
 
 begin # Functions for making plots
 
+    function n(ψ;minbin = 0) # returns spectra and k values
+        ϕ = fft(ψ) .|> abs2
+        ϕk = []
+
+        for i in 1:Mx, j in 1:My, k in 1:Mz
+            push!(ϕk,(ϕ[i,j,k],hypot(kx[i],ky[j],kz[k])))
+        end
+
+        sort!(ϕk, by = x->x[2])
+
+        q = popfirst!(ϕk)
+        ϕ_out = [q[1]]
+        k_out = [q[2]]
+
+        sum1 = 0 |> complex
+        count = 0
+        k = 0
+        
+        while length(ϕk) > 0
+            q = popfirst!(ϕk)
+            sum1 += q[1]
+            count += 1
+
+            if q[2] != k
+                push!(ϕ_out, sum1 / count)
+                push!(k_out, k)
+
+                k = q[2]
+                sum1 = 0
+                count = 0
+            end
+        end
+
+        if minbin == 0
+            return k_out, ϕ_out  
+        else
+
+            kout = []
+            ϕout = []
+
+            for i in 1:ceil(Int,maximum(k_out)/minbin)
+                for j in eachindex(k_out)
+                    if k_out[j] > i*minbin && (j > 1)
+                        push!(kout,sum(k_out[1:(j-1)]) / (j-1))
+                        deleteat!(k_out,1:(j-1))
+
+                        push!(ϕout,sum(ϕ_out[1:(j-1)])/(j-1))
+                        deleteat!(ϕ_out,1:(j-1))
+                        break
+                    elseif k_out[end] < i*minbin
+                        push!(kout,sum(k_out/length(k_out)))
+                        push!(ϕout,sum(ϕ_out[1:(j-1)])/(j-1))
+                        break
+                    end
+                end
+            end
+            return kout, ϕout
+        end
+        
+    end
+
+    function n2D(ψ;minbin = 0) # returns spectra and k values
+        ϕ = fft(ψ) .|> abs2
+        ϕk = []
+
+        for i in 1:Mx, j in 1:My
+            push!(ϕk,(ϕ[i,j],hypot(kx[i],ky[j])))
+        end
+
+        sort!(ϕk, by = x->x[2])
+
+        q = popfirst!(ϕk)
+        ϕ_out = [q[1]]
+        k_out = [q[2]]
+
+        sum1 = 0 |> complex
+        count = 0
+        k = 0
+        
+        while length(ϕk) > 0
+            q = popfirst!(ϕk)
+            sum1 += q[1]
+            count += 1
+
+            if q[2] != k
+                push!(ϕ_out, sum1 / count)
+                push!(k_out, k)
+
+                k = q[2]
+                sum1 = 0
+                count = 0
+            end
+        end
+
+        if minbin == 0
+            return k_out, ϕ_out  
+        else
+
+            kout = []
+            ϕout = []
+
+            for i in 1:ceil(Int,maximum(k_out)/minbin)
+                for j in 1:length(k_out)
+                    if k_out[j] > i*minbin && (j > 1)
+                        push!(kout,sum(k_out[1:(j-1)]) / (j-1))
+                        deleteat!(k_out,1:(j-1))
+
+                        push!(ϕout,sum(ϕ_out[1:(j-1)])/(j-1))
+                        deleteat!(ϕ_out,1:(j-1))
+                    elseif k_out[end] < i*minbin
+                        push!(kout,sum(k_out/length(k_out)))
+                        push!(ϕout,sum(ϕ_out[1:(j-1)])/(j-1))
+                    end
+                end
+            end
+            return kout, ϕout
+        end
+        
+    end
+
     Ek(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*ksum.*fft(ψ)))) # E_Kinetic / μ
-    Ep(ψ,V) = ξ^3*ψ0^2 * dr*sum((Array(V_0) .+ V).*abs2.(ψ)) |> real # E_Potential / μ
-    Ei(ψ) = 0.5*ξ^3*ψ0^2 *G*dr*sum(abs2.(ψ).^2) # E_Interaction / μ
+    Ep(ψ,V) = ξ^3*ψ0^2 * dr*sum((Array(V_0) .+ Array(V)).*abs2.(ψ)) |> real # E_Potential / μ
+    Ei(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ψ).^2) # E_Interaction / μ
 
     Ekx(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(kx).*fft(ψ)))) # x-direction E_k
     Eky(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(ky).*fft(ψ)))) # y-direction E_k
     Ekz(ψ) = 0.5*ξ^3*ψ0^2 * dr*sum(abs2.(ifft(im*Array(kz).*fft(ψ)))) # z-direction E_k
+
+    function NormChange(sol) # Percentage change in norm 
+        return 100*(number(sol[:,:,:,end]) - number(sol[:,:,:,1])) / number(sol[:,:,:,1]) |> abs
+    end
 
     function gradsquared(ψ) # Gradient Squared of ψ
         ϕ = fft(ψ)
@@ -214,11 +411,12 @@ begin # Adjustable Parameters and constants
     N = 4e5 # Bigger N smaller norm
 
     trap = "box" # "box", "cyl" (cylinder), or "harm" (harmonic)
+    type = "F32"
 
     if trap == "harm"
-        ω_x = .5 # Harmonic Trapping Frequencies, if using harmonic trap
-        ω_y = .5
-        ω_z = .1
+        ω_x = 1 # Harmonic Trapping Frequencies, if using harmonic trap
+        ω_y = 1
+        ω_z = 1
 
         Rx = sqrt(2)/ω_x
         Ry = sqrt(2)/ω_y
@@ -229,26 +427,27 @@ begin # Adjustable Parameters and constants
     ψ0 = sqrt(μ/g) #sqrt(N/ξ^3) 
     τ = ħ/μ
 
-    Lx = 20#6*sqrt(2)/ω_x
-    Ly = 20 #6*sqrt(2)/ω_y
+    Lx = 30 #*sqrt(2)/ω_x
+    Ly = 25 #*sqrt(2)/ω_y
     Lz = 20 #6*sqrt(2)/ω_z
 
-    Mx = 64 # Grid sizes
-    My = 64
-    Mz = 64
+    Mx = 256 # Grid sizes
+    My = Mx
+    Mz = Mx
 
-    A_V = 60    # Trap height
+    A_V = 15    # Trap height
     n_V = 24    # Trap Power (pretty much always 24)
-    L_V = 8    # No. of healing lengths for V to drop from A_V to 0.01A_V 
-    L_P = 8     # Amount of padding outside trap (for expansion)
+    L_V = 10    # No. of healing lengths for V to drop from A_V to 0.01A_V 
+    L_P = 15     # Amount of padding outside trap (for expansion)
+
     use_cuda = CUDA.functional()
 end
 
 begin # Arrays
 
-    x = LinRange(-Lx/2 - (L_P + L_V),Lx/2 + (L_P + L_V),Mx) |> collect
-    y = LinRange(-Ly/2 - (L_P + L_V),Ly/2 + (L_P + L_V),My)' |> collect
-    z = LinRange(-Lz/2 - (L_P + L_V),Lz/2 + (L_P + L_V),Mz)
+    x = LinRange(-Lx/2 - (L_P + L_V),Lx/2 + (L_P + L_V),Mx + 1)[2:end] |> collect
+    y = LinRange(-Ly/2 - (L_P + L_V),Ly/2 + (L_P + L_V),My + 1)[2:end]' |> collect
+    z = LinRange(-Lz/2 - (L_P + L_V),Lz/2 + (L_P + L_V),Mz + 1)[2:end]
     z = reshape(z,(1,1,Mz)) |> collect
 
     dx = x[2] - x[1]
@@ -279,13 +478,25 @@ if Vbox
     λ = L_V/acos(0.01^(1/n_V))
 
     for i in 1:Mx, j in 1:My, k in 1:Mz
+        #if (abs(x[i]) > 0.5*Lx + L_V + L_P - 4) || (abs(y[j]) > 0.5*Ly + L_V + L_P - 4) || (abs(z[k]) > 0.5*Lz + L_V + L_P - 4) # V = A_V at edges
+        #    V_0[i,j,k] = A_V #+ (max(0,abs(x[i]) - (0.5*Lx + L_V + L_P - 4))^4 + max(0,abs(y[j]) - (0.5*Ly + L_V + L_P - 4))^4 + max(0,abs(z[k]) - (0.5*Lz + L_V + L_P - 4))^4)
         if (abs(x[i]) > 0.5*Lx + L_V) || (abs(y[j]) > 0.5*Ly + L_V) || (abs(z[k]) > 0.5*Lz + L_V) # V = A_V at edges
-            V_0[i,j,k] = A_V #+ 0.5*(max(0,abs(x[i]) - (0.5*Lx + L_V)) + max(0,abs(y[j]) - (0.5*Ly + L_V)) + max(0,abs(z[k]) - (0.5*Lz + L_V)))
+            V_0[i,j,k] = A_V #+ 0.5*(max(0,abs(x[i]) - (0.5*Lx + L_V))^2 + max(0,abs(y[j]) - (0.5*Ly + L_V))^2 + max(0,abs(z[k]) - (0.5*Lz + L_V))^2)
         else
             lx = L_V + π*λ/4 - max(0.0,abs(x[i]) - (0.5*Lx - π*λ/4)) # Finding the distance from the centre in each direction, 
             ly = L_V + π*λ/4 - max(0.0,abs(y[j]) - (0.5*Ly - π*λ/4)) # discarding if small
             lz = L_V + π*λ/4 - max(0.0,abs(z[k]) - (0.5*Lz - π*λ/4))
+            lx = L_V + π*λ/4 - max(0.0,abs(x[i]) - (0.5*Lx - π*λ/4)) # Finding the distance from the centre in each direction, 
+            ly = L_V + π*λ/4 - max(0.0,abs(y[j]) - (0.5*Ly - π*λ/4)) # discarding if small
+            lz = L_V + π*λ/4 - max(0.0,abs(z[k]) - (0.5*Lz - π*λ/4))
         
+            #V_0[i,j,k] = Vboundary(min(lx,ly,lz))
+            V_0[i,j,k] = hypot(Vboundary(lx),Vboundary(ly),Vboundary(lz))
+            #V_0[i,j,k] = Vboundary(smin(smin(lx,ly,V_k),lz,V_k))
+            #V_0[i,j,k] = (Vboundary(lx),Vboundary(ly),V_k),Vboundary(lz),V_k)
+            if V_0[i,j,k] > A_V
+                V_0[i,j,k] = A_V
+            end
             #V_0[i,j,k] = Vboundary(min(lx,ly,lz))
             V_0[i,j,k] = hypot(Vboundary(lx),Vboundary(ly),Vboundary(lz))
             #V_0[i,j,k] = Vboundary(smin(smin(lx,ly,V_k),lz,V_k))
@@ -315,47 +526,51 @@ if Vcyl # Cylinder Trap Potential
 end;
 
 if Vharm
-    V_0 = 0.5*[(ω_x*i)^2 + (ω_y*j)^2 + (ω_z*k)^2 for i in x, j in reshape(y,My), k in reshape(z,Mz)]
-    ψ_gauss = [exp(-0.5*(ω_x*i^2 + ω_y*j^2 + ω_z*k^2)) for i in x, j in reshape(y,My), k in reshape(z,Mz)]  .|> ComplexF32;
+    V_0 = 0.5*.04*[(ω_x*i)^2 + (ω_y*j)^2 + (ω_z*k)^2 for i in x, j in reshape(y,My), k in reshape(z,Mz)]
+    ψ_gauss = [exp(-0.5*(ω_x*i^2 + ω_y*j^2 + ω_z*k^2)) for i in x, j in reshape(y,My), k in reshape(z,Mz)]  #.|> ComplexF32;
 end;
 
-Plots.heatmap(x,reshape(y,My),(V_0[:,:,32]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
-Plots.heatmap(x,reshape(z,Mz),(V_0[:,32,:]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"))
+Plots.heatmap(x,reshape(y,My),(V_0[:,:,128]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
+Plots.heatmap(x,reshape(z,Mz),(V_0[:,64,:]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"))
 
-Plots.plot(x,V_0[:,32,32],xlabel = L"x",lw=2,ylabel=L"V/A_V",label = false)
-#xlims!(-0.5*Lx - L_V - 1, -0.5*Lx - L_V + 1)
-#ylims!(58,62)
+Plots.plot(x,V_0[:,128,128],xlabel = L"x",lw=2,ylabel=L"V/A_V",label = false)
 vline!([-0.5*Lx,0.5*Lx],alpha = 0.8,label = L"±0.5*Lx")
 vline!([-0.5*Lx - L_V,0.5*Lx + L_V],alpha = 0.8,label = L"±(0.5Lx + L_V)")
 vline!([-0.5*Lx + λ*π/4, 0.5*Lx - λ*π/4])
+vline!([-0.5*Lx + λ*π/4, 0.5*Lx - λ*π/4])
 
-ψ_TF = 1/sqrt(N)*[max(0,1-V_0[i,j,k]) for i in 1:Mx, j in 1:My, k in 1:Mz] |> complex;
+#ψ_TF = [max(0,1 - hypot(i,j,k)^2/R_tf^2) for i in x, j in x, k in x] |> complex;
 ψ_rand = (rand(Mx,My,Mz) + im*rand(Mx,My,Mz));
-ψ_ones = ones(Mx,My,Mz) |> complex;
+#ψ_ones = ones(Mx,My,Mz) |> complex;   
 
 if use_cuda # Transforming arrays
-    x = x |> cu
-    y = y |> cu
-    z = z |> cu
-    V_0 = V_0 |> cu
-    kx = kx |> cu
-    ky = ky |> cu
-    kz = kz |> cu
-    k2 = k2 |> cu
-    ψ_rand = ψ_rand |> cu
-    ψ_ones = ψ_ones |> cu
-    ψ_TF = ψ_TF |> cu
+    if type == "F64"
+        V_0 = adapt(CuArray,V_0)
+        k2 = adapt(CuArray,k2)
+        ψ_rand = adapt(CuArray,ψ_rand)
+        #ψ_ones = adapt(CuArray,ψ_ones)
+        #ψ_TF = adapt(CuArray,ψ_TF)
+    elseif type == "F32"
+        V_0 = V_0 |> cu
+        k2 = k2 |> cu
+        ψ_rand = ψ_rand |> cu
+        #ψ_ones = ψ_ones |> cu
+        #ψ_TF = ψ_TF |> cu
+    else
+        println("Invalid Type!")
+    end
 end;
 
-if use_cuda # For some reason FFTW.MEASURE doesn't work for cuda arrays
-    const Pf = Float32(dr/(2π)^1.5)*plan_fft(copy(ψ_rand));
-    const Pi! = Float32(Mx*My*Mz*dkx*dky*dkz/(2π)^1.5)*plan_ifft!(copy(ψ_rand));
+if use_cuda 
+    const Pf = (dr/(2π)^1.5) * plan_fft(copy(ψ_rand));
+    const Pi! = Mx*My*Mz*dkx*dky*dkz/(2π)^1.5 * plan_ifft!(copy(ψ_rand));
 else
-    const Pf = dr/(2π)^1.5*plan_fft(copy(ψ_rand),flags=FFTW.MEASURE);
-    const Pi! = Mx*My*Mz*dkx*dky*dkz/(2π)^1.5*plan_ifft!(copy(ψ_rand),flags=FFTW.MEASURE);
+    const Pf = dr/(2π)^1.5 * plan_fft(copy(ψ_rand),flags=FFTW.MEASURE);
+    const Pi! = Mx*My*Mz*dkx*dky*dkz/(2π)^1.5 * plan_ifft!(copy(ψ_rand),flags=FFTW.MEASURE);
 end
 
-CUDA.memory_status()
+l = @layout [a ; b c ; d e]
+plot(rand(10,11),layout = l)
 
 #-------------------------- Finding Ground State -----------------------------------------
 
@@ -369,172 +584,137 @@ cb = DiscreteCallback(con,affect!)
 
 cbres = zeros(Mx,My,Mz,5) .|> ComplexF32;
 
-begin
-    γ = 1
-    tspan = LinRange(0.0,40,5); 
+γ = 1
+tspan = LinRange(0.0,5,20); 
+res_GS = []
+GPU_Solve!(res_GS,GPE!,ψ_rand,tspan,plot_progress=true, print_progress=true,abstol=1e-8,reltol=1e-5,alg=Tsit5());#ParsaniKetchesonDeconinck3S32());
+CUDA.memory_status()
 
-    t0 = time()
-    prob = ODEProblem(GPE!,ψ_rand,(tspan[1],tspan[end]))   
-    @time prob = solve(prob,callback=cb)#saveat=tspan)#,save_everystep = false, save_start = false, save_end = false);#,callback=cb)
-end;
+Norm = [number(i) for i in res_GS];
+Plots.plot(Norm,ylims=(0,2*Norm[end]))
 
-size(sol)
-res = Array(sol);
-ψ_GS = res[:,:,:,end]; #sol[:,:,:,end];
+Plots.heatmap(x,reshape(y,My),abs2.(res_GS[5][:,:,128]'),clims=(0,1),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),right_margin=8mm,cbar=false)
+xlims!(-40,40)
+vline!([-0.5*Lx,0.5*Lx],label = L"± 0.5Lx",width=2,alpha=0.3)
+hline!([-0.5*Ly,0.5*Ly],label = L"± 0.5 Ly",width=2,alpha=0.3)
 
-@save "GS" ψ_GS
-@load "GS" ψ_GS
+Plots.heatmap(x,reshape(z,Mz),abs.(res_GS[20][:,128,:]'),clims=(0,1),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm,cbar=false)
+xlims!(-40,40)
+vline!([-0.5*Lx,0.5*Lx],label = L"± 0.5 Lx",width=2,alpha=0.3)
+hline!([-0.5*Lz,0.5*Lz],label = L"± 0.5 Lz",width=2,alpha=0.3)
 
-Norm = [number(res[:,:,:,i]) for i in 1:5];
-Plots.plot(Norm,ylims=(0,15*Norm[end]))
+Plots.plot(x,abs2.(res_GS[3][:,64,64]))#,ylims=(0.9,1.1))
 
-Plots.heatmap(x,reshape(y,My),abs2.(res[:,:,64,5]'),clims=(0,2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),right_margin=8mm)
-vline!([-0.5*Lx,0.5*Lx],label = "±Lx/2",width=2,alpha=0.3)
-hline!([-0.5*Ly,0.5*Ly],label = "±Ly/2",width=2,alpha=0.3)
-
-Plots.heatmap(x,reshape(z,Mz),abs2.(res[:,64,:,5]'),clims=(0,2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm)
-vline!([-0.5*Lx,0.5*Lx],label = "±Lx/2",width=2,alpha=0.3)
-hline!([-0.5*Lz,0.5*Lz],label = "±Lz/2",width=2,alpha=0.3)
+ψ_GS = res_GS[20][:,:,:];
 
 #-------------------------- Creating Turbulence ------------------------------------------
 
-ΔU = 1
-ω_shake = 2π * 0.03055 
-shakegrid = ΔU * Array(z)./(0.5*Lz) .* ones(Mx,My,Mz) |> complex;
+Shake_Grad = 0.1          # Gradient of shake 
+ω_shake = 2π * 0.03055      # Frequency of shake 
+shakegrid = Shake_Grad * Array(z) .* ones(Mx,My,Mz) |> complex;    
 
 V(t) = sin(ω_shake*t)*shakegrid
 
-noisegrid = randn(Mx,My,Mz) + im*randn(Mx,My,Mz);
-ψ_noise = ψ_GS;# .+ .01*maximum(abs.(ψ_GS))*noisegrid; 
-number(ψ_noise)
-
-Plots.heatmap(abs2.(ψ_noise[:,64,:]'),clims = (0,1.3),aspectratio=1)
+Plots.plot(reshape(z,Mz),Shake_Grad*reshape(z,Mz))
 
 if use_cuda
-    shakegrid = shakegrid |> cu
-    ψ_noise = ψ_noise |> cu
-end;
-
-CUDA.memory_status()
-
-begin 
-    γ = 5e-4
-    tspan = LinRange(0,2.0/τ,5)
-
-    prob = ODEProblem(NDVPE!,ψ_noise,(tspan[1],tspan[end]))    
-    @time sol2 = solve(prob,saveat=tspan,reltol=1e-5)
-end;
-
-CUDA.memory_status()
-
-res1 = Array(sol2);
-tvec = Array(sol2.t);
-
-#res1[:,:,:,1] .= Array(ψ_GS);
-ψ_turb = res1[:,:,:,end];
-
-Norm1 = [number(res1[:,:,:,i]) for i in 1:5];
-Plots.plot(Norm1,ylims=(0,1e4))
-
-Plots.heatmap(x,reshape(y,My),abs.(res1[:,:,64,5]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1.5),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
-Plots.heatmap(x,reshape(z,Mz),abs2.(res1[:,64,:,5]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1.5),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm)
-
-using VortexDistibutions
-
-Plots.plot(x,abs.(res1[:,64,64,5]),ylims=(0,0.01),ylabel ="|ψ(x,y = -Ly, z = -Lz)|",xlabel="x",title = "t = 2/τ")
-vline!([-0.5*Lx - L_V,0.5*Lx + L_V])
-
-begin # Energy Plots
-    E_K = [Ek(res1[:,:,:,i]) for i in eachindex(res1[1,1,1,:])];
-    E_Kx = [Ekx(res1[:,:,:,i]) for i in eachindex(res1[1,1,1,:])];
-    E_Ky = [Eky(res1[:,:,:,i]) for i in eachindex(res1[1,1,1,:])];
-    E_Kz = [Ekz(res1[:,:,:,i]) for i in eachindex(res1[1,1,1,:])];
-
-    #E_P = [Ep(res[:,:,:,i],V(sol2.t[i])) for i in eachindex(sol2.t)];
-    E_I = [Ei(res1[:,:,:,i]) for i in eachindex(res1[1,1,1,:])];
-
-    P = Plots.plot(tspan,E_K,lw=1.5,label=L"E_K")
-    Plots.plot!(tspan,E_Kx,lw=1.5,label=L"E_{kx}",alpha=0.4)
-    Plots.plot!(tspan,E_Ky,lw=1.5,label=L"E_{ky}",alpha=0.4)
-    Plots.plot!(tspan,E_Kz,lw=1.5,label=L"E_{kz}",alpha=0.4)
-    #Plots.plot!(sol2.t,E_P,lw=1.5,label=L"E_p")
-    Plots.plot!(tspan,E_I,lw=1.5,label=L"E_i")
-end
-
-begin
-    Einc = zeros(length(tspan))
-    Ecom = zeros(length(tspan))
-    X = map(Array,(x,reshape(y,My),reshape(z,Mz)));
-    K = map(Array,(kx,reshape(ky,My),reshape(kz,My)));
-
-    for i in 1:length(tspan)
-        psi = Psi(ComplexF64.(res1[:,:,:,1]),X,K);
-        #_, Einc[i], Ecom[i] 
-        XX = energydecomp(psi)
+    if type == "F64"
+        shakegrid = adapt(CuArray,shakegrid)
+        ψ_GS = adapt(CuArray,ψ_GS)
+    elseif type == "F32"
+        shakegrid = shakegrid |> cu
+        ψ_GS = ψ_GS |> cu
+    else
+        println("Invalid Type!")
     end
+end;
 
-    Plots.plot(tspan,Einc,lw=1.5,label=L"E_i")
-    Plots.plot!(tspan,Ecom,lw=1.5,label=L"E_c")
-end
+γ = 0
+tspan = LinRange(0,2.0/τ,40)
+tspan2 = LinRange(tspan[33],tspan[end],8)
+#res_turb = []
+GPU_Solve!(res_turb,NDVPE!,ψ_GS,tspan,reltol=1e-5,abstol = 1e-8, plot_progress=true, print_progress=true,alg=Tsit5());
+GPU_Solve!(res_turb,NDVPE!,cu(res_turb[end]),tspan2,reltol=1e-5,abstol = 1e-8, plot_progress=true, print_progress=true,alg=Tsit5());
+CUDA.memory_status()
 
-@save "turb200" res1
-@load "turb200" res1
-#Plots.savefig(P,"Energy")
+length(res_turb)
+deleteat!(res_relax,33)
+
+Norm1 = [number(i) for i in res_turb];
+Plots.plot(Norm1,ylims=(0,2e4))
+#NormChange(res_turb)
+
+Plots.heatmap(x,reshape(y,My),abs2.(res_turb[2][:,:,64]'),aspectratio=1,title="t = (tvec[4])",clims=(0,1),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
+RANDPLOT = Plots.heatmap(x,reshape(z,Mz),abs2.(res_turb[end][:,128,:]'),aspectratio=1,
+        size = (600,600),
+        #title="t = (tvec[4])",
+        clims=(0,1.5),
+        xlabel=(L"x/\xi"),
+        ylabel=(L"z/\xi"),
+        label=(L"z/\xi"),
+        right_margin=8mm,
+        c=:thermal,
+        cbar=false,
+        xlims=(-40,40),
+        legendfontsize=12,
+        labelfontsize=15,
+        ylims=(-35,35))
+vline!([-0.5*Lx,0.5*Lx],label = L"± 0.5Lx",width=2,alpha=0.3)
+hline!([-0.5*Lz,0.5*Lz],label = L"± 0.5 Lz",width=2,alpha=0.3)
+Plots.savefig(RANDPLOT,"Turbfig.svg")
+
+Plots.plot(x,abs2.(res_turb[33][128,:,128]),ylims=(0,1),ylabel ="|ψ(x,y = -Ly, z = -Lz)|",xlabel="x",title = "t = 2/τ")
+Plots.plot(x,abs2.(res_turb[40][64,:,64]),ylims=(0,1),ylabel ="|ψ(x,y = -Ly, z = -Lz)|",xlabel="x",title = "t = 2/τ")
+Plots.heatmap(abs.(res_turb[40][:,:,50])*1e0,aspectratio=1,clims=(0,1))
+
+ψ_turb = res_turb[end][:,:,:];
+
+if use_cuda
+    if type == "F64"
+        ψ_turb = adapt(CuArray,ψ_turb)
+    elseif type == "F32"
+        ψ_turb = ψ_turb |> cu
+    else
+        println("Invalid Type!")
+    end
+end;
 
 #-------------------------- Relaxation ---------------------------------------------------
-
-if use_cuda
-    ψ_turb = ψ_turb |> cu
-end;
-
+γ = 0
+tspan = LinRange(0,2.0/τ,40)
+tspan2 = LinRange(tspan[33],tspan[end],8)
+#res_relax = []
+GPU_Solve!(res_relax,GPE!,cu(res_relax[end]),tspan2,reltol=1e-5,abstol = 1e-8, plot_progress=true, print_progress=true,alg=Tsit5());
 CUDA.memory_status()
 
-begin 
-    γ = 5e-4
-    tspan = LinRange(0,2.0/τ,5)
+length(res_relax)
 
-    prob = ODEProblem(GPE!,ψ_turb,(tspan[1],tspan[end]))    
-    @time sol3 = solve(prob,saveat=tspan,abstol=1e-6,reltol=1e-4)
-end;
+Norm2 = [number(Array(i)) for i in res_relax];
+Plots.plot(Norm2,ylims=(0,2e4))
+#NormChange(res_relax)
 
-CUDA.memory_status()
-res2 = (Array(sol3));
-tvec2 = Array(sol3.t);
-
-Norm2 = [number(Array(res2[:,:,:,i])) for i in 1:4];
-Plots.plot(Norm2,ylims=(0,1e4))
-
-begin
-    t1 = 5
-    #Plots.heatmap(x,reshape(y,My),abs2.(res2[:,:,100,t1]'),clims=(0,1.2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),title="t=$(tvec2[t1])")
-    Plots.heatmap(x,reshape(z,Mz),abs2.(res2[:,100,:,t1]'),clims=(0,1.2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),title="t=$(tvec2[t1])")
+for i in 1:40
+    t1 = i
+    #P = Plots.heatmap(x,reshape(y,My),abs2.(res_relax[t1][:,:,100]'),clims=(0,1.2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),title="t=(tvec2[t1])")
+    P = Plots.heatmap(x,reshape(z,Mz),abs2.(res_relax[t1][:,128,:]'),clims=(0,1.2),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),title="t=(tvec2[t1])")
+    display(P)
 end
 
-begin # Energy plots
-    E_K = [Ek(res2[:,:,:,i]) for i in eachindex(tspan)];
-    E_Kx = [Ekx(res2[:,:,:,i]) for i in eachindex(tspan)];
-    E_Ky = [Eky(res2[:,:,:,i]) for i in eachindex(tspan)];
-    E_Kz = [Ekz(res2[:,:,:,i]) for i in eachindex(tspan)];
-
-    E_P = [Ep(res2[:,:,:,i],zeros(Mx,My,Mz)) for i in eachindex(tspan)];
-    E_I = [Ei(res2[:,:,:,i]) for i in eachindex(tspan)];
-
-    P = Plots.plot(tspan,E_K,lw=1.5,label=L"E_K")
-    Plots.plot!(tspan,E_Kx,lw=1.5,label=L"E_{kx}",alpha=0.4)
-    Plots.plot!(tspan,E_Ky,lw=1.5,label=L"E_{ky}",alpha=0.4)
-    Plots.plot!(tspan,E_Kz,lw=1.5,label=L"E_{kz}",alpha=0.4)
-    Plots.plot!(tspan,E_P,lw=1.5,label=L"E_p")
-    Plots.plot!(tspan,E_I,lw=1.5,label=L"E_i")
-end
-
-@save "relax200" res2
-@load "relax200" res2
+#@save "relax200" res2
+#@load "relax200" res2
 
 #-------------------------- Expansion -------------------------------------------------
 
 begin # Expansion Functions
 
     function initialise(ψ)
+        global x
+        global y
+        global z
+        global kx
+        global ky
+        global kz
+
         global Na = number(ψ) |> Float32
         ϕi = ψ ./ sqrt(Na)
 
@@ -542,6 +722,12 @@ begin # Expansion Functions
         
         if use_cuda
             ϕi = cu(ϕi)
+            x = cu(x)
+            y = cu(y)
+            z = cu(z)
+            kx = cu(kx)
+            ky = cu(ky)
+            kz = cu(kz)
         end
 
         global ax2 = dr*sum(@. x^2*abs2(ϕi))
@@ -576,22 +762,21 @@ begin # Expansion Functions
     end
 
     function extractinfo(sol)
-        λx = [sol[:,i].x[2][1] for i in eachindex(sol.t)]
-        λy = [sol[:,i].x[2][2] for i in eachindex(sol.t)]
-        λz = [sol[:,i].x[2][3] for i in eachindex(sol.t)]
+        λx = [i.x[2][1] for i in sol]
+        λy = [i.x[2][2] for i in sol]
+        λz = [i.x[2][3] for i in sol]
         
-        σx = [sol[:,i].x[2][4] for i in eachindex(sol.t)]
-        σy = [sol[:,i].x[2][5] for i in eachindex(sol.t)]
-        σz = [sol[:,i].x[2][6] for i in eachindex(sol.t)]
+        σx = [i.x[2][4] for i in sol]
+        σy = [i.x[2][5] for i in sol]
+        σz = [i.x[2][6] for i in sol]
     
         ax = @. sqrt(ax2*λx^2)
         ay = @. sqrt(ay2*λy^2)
         az = @. sqrt(az2*λz^2)
     
-        ϕ = [sol[:,i].x[1] for i in eachindex(sol.t)]
-        res = [Array(ϕ[i]) for i in eachindex(sol.t)];
+        res = [i.x[1] for i in sol]
 
-        return res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az
+        return res,λx,λy,λz,σx,σy,σz,ax,ay,az
     end
 
     function CurrentDensity(ψ)
@@ -687,7 +872,7 @@ begin # Expansion Functions
 end
 
 begin
-    ψ_0 = res2[:,:,:,2]
+    ψ_0 = res_turb[end]
     ϕ_initial = initialise(ψ_0)
 
     PfArray = [Pfx, Pfy, Pfz]
@@ -712,50 +897,34 @@ begin
 
 end;
 
-t = LinRange(0,.01,2);
+tspan = LinRange(0,20,20);
+res_expand = []; 
+GPU_Solve!(res_expand,spec_expansion_opt!,ϕ_initial,tspan,alg=Tsit5());
 
-CUDA.memory_status()
+res,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(res_expand[2:end]);
 
-probs = ODEProblem(spec_expansion_opt!,ϕ_initial,(t[1],t[end]));
-@time solt2 = solve(probs,saveat=t,abstol=1e-6,reltol=1e-5);
-
-res,ϕ,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(solt2);
-
-Norm = [number(res[i]) for i in 1:4]
-Plots.plot(Norm,ylims = (0,1.5*maximum(Norm)))
+Norm = [number(i) for i in res]
+ Plots.plot(Norm,ylims = (0,1.5*maximum(Norm)))
 
 Plots.plot(λx,label="λx")
 Plots.plot!(λy,label="λx")
 Plots.plot!(λz,label="λz")
 
 begin
-    Plots.plot(t,ay ./ ax,ylims=(0.7,1.8),c=:red,lw=2,label="ay/ax")
-    Plots.plot!(t,ay ./ az,c=:blue,lw=2,label="ay/az")
-    Plots.plot!(t,ax ./ az,c=:green,lw=2,label="ax/az")
-
-    #hline!(sqrt.([ax2/ay2]),linestyle=:dash,alpha=0.6,c=:red)
-    #hline!(sqrt.([az2/ay2]),linestyle=:dash,alpha=0.6,c=:blue)
-    #hline!(sqrt.([az2/ax2]),linestyle=:dash,alpha=0.6,c=:green)
+    Plots.plot(ay ./ ax,ylims=(0.7,1.8),c=:red,lw=2,label="ay/ax")
+    Plots.plot!(ay ./ az,c=:blue,lw=2,label="ay/az")
+    Plots.plot!(ax ./ az,c=:green,lw=2,label="ax/az")
 end
 
-ax[1]
-ay[1]
-az[1]
-
-ress = [abs2.(res[i]) for i in 1:length(res)];
-
-for i in 1:4
+for i in 1:7
     begin
         t1 = i
-        p = Plots.heatmap(x*λx[t1],reshape(y,My)*λy[t1],ress[t1][:,:,100]',aspectratio=1,clims=(0,1e-3),c=:thermal,ylabel = L"y/\xi" )
-        #p = Plots.heatmap(x*λx[t1],reshape(z,Mz)*λz[t1],ress[t1][:,100,:]',aspectratio=1,clims=(0,1e-3),c=:thermal,ylabel=L"z/\xi")
+        #p = Plots.heatmap(x*λx[t1],reshape(y,My)*λy[t1],abs2.(res[t1][:,:,64])',aspectratio=1,clims=(0,2e-4),c=:thermal,ylabel = L"y/\xi" )
+        p = Plots.heatmap(x*λx[t1],reshape(z,Mz)*λz[t1],abs2.(res[t1][:,128,:])',aspectratio=1,clims=(0,2e-4),c=:thermal,ylabel=L"z/\xi")
         Plots.xlabel!(L"x/\xi")
         display(p)
     end
 end
-
-vline!([200])
-hline!([200])
 
 fftpsi = log.(abs2.(fftshift(fft(sol[:,:,:,end]))));
 Plots.heatmap(fftshift(kx),fftshift(reshape(ky,My)),fftpsi[:,:,64]',aspectratio=1,c=:thermal,ylabel=L"y/\xi")
@@ -779,15 +948,11 @@ begin # Castin-Dum tings
     display(pl)
 end
 
-#-------------------------- Spectra -----------------------------------------------------
-
-# res = GS
-# res1 = turb
-# res2 = relax
+#-------------------------- Plots/Spectra/Analysis-----------------------------------------------------
 
 X = map(Array,(x,reshape(y,My),reshape(z,Mz)));
 K = map(Array,(kx,reshape(ky,My),reshape(kz,My)));
-ψ = ComplexF64.(res2[:,:,:,1]);
+ψ = ComplexF64.(res_turb[end]);
 
 psi = Psi(ψ,X,K);
 k = log10range(0.1,10^2,100)
@@ -795,9 +960,23 @@ E_i = incompressible_spectrum(k,psi);
 E_c = compressible_spectrum(k,psi);
 E_q = qpressure_spectrum(k,psi);
 
+Plots.plot(E_c ./ E_i,xlims=(0.1,10))
+Plots.savefig(P,"spectra.svg")
+
 begin # Plots
-    P = Plots.plot(k,E_q,axis=:log,ylims=(1e2,1e5),label=false,lw=2,legend=:bottomright,alpha=0.5,title=L"E_{QP}")# / E_{incompressible}")
-    #Plots.plot!(x->(1.2e4)*x^-3,[x for x in k[50:70]],label=false,alpha=1,lw=.5)
+    P = Plots.plot(k,E_i,axis=:log,ylims=(1e2,5e4),xlims=(.1,15),
+        label="Incompressible",
+        lw=2,
+        legend=:bottomright,
+        alpha=0.8,
+        framestyle=:box,
+        xlabel=(L"k\xi")
+    )
+    Plots.plot!(k,E_c,lw = 2,alpha=0.8,label="Compressible")
+    Plots.plot!(k,E_q,lw=2,alpha=0.8, label = "Quantum Pressure")
+
+
+    Plots.plot!(x->(1.213e6)*x^-3,[x for x in k[50:70]],label=false,alpha=1,lw=.5)
     #Plots.plot!(x->(2.2e2)*x^1.1,[x for x in k[7:55]],label=false,alpha=1,lw=.5)
 
     k_Lx = 2π/(Lx)# Size of the System
@@ -809,17 +988,148 @@ begin # Plots
     k_dr = 2π/dr^(1/3) # Geometric mean of resolution
     k_dx = 2π/hypot(dx,dx,dx)
     
-    vline!([k_Lx], label = L"$k_{Lx}$",linestyle=:dash,alpha=0.5)
-    vline!([k_Ly], label = L"$k_{Ly}$",linestyle=:dash,alpha=0.5)
-    vline!([k_Lz], label = L"$k_{Lz}$",linestyle=:dash,alpha=0.5)
+    vline!([k_Lx], label = false,linestyle=:dash,alpha=0.5,c=:black)
+    vline!([k_Ly], label = false,linestyle=:dash,alpha=0.5,c=:black)
+    vline!([k_Lz], label = false,linestyle=:dash,alpha=0.5,c=:black)
     #vline!([k_l], label = L"$k_l$",linestyle=:dash,alpha=0.5)
-    vline!([k_π], label = L"$π$",linestyle=:dash,alpha=0.5)
-    vline!([k_ξ], label = L"$k_\xi$",linestyle=:dash,alpha=0.5)
-    vline!([k_dr], label = L"$k_{dr}$",linestyle=:dash,alpha=0.5)
-    vline!([k_dx], label = L"$k_{lol}$",linestyle=:dash,alpha=0.5)
+    #vline!([k_π], label = L"$π$",linestyle=:dash,alpha=0.5)
+    vline!([k_ξ], label = false,linestyle=:dash,alpha=0.5,c=:black)
+    #vline!([k_dr], label = L"$k_{dr}$",linestyle=:dash,alpha=0.5)
+    vline!([k_dx], label = false,linestyle=:dash,alpha=0.5,c=:black)
 end
 
+# density of slice through z = 0
+ψz = ComplexF64.(res_relax[:,:,100,end]);
+ψz ./= sqrt(number(ψz));
 
+Plots.heatmap(abs2.(ψz),aspectratio=1)
+
+X = map(Array,(x,reshape(y,My)));
+K = map(Array,(kx,reshape(ky,My)));
+
+psi = Psi(ψz,X,K);
+k = log10range(.001,1,100)
+
+nk = density_spectrum(k,psi)
+Plots.plot(k,nk)
+
+# Energy Plots
+res = cat(res_turb,res_relax,dims=1);
+length(res)
+typeof(res)
+
+tspan = LinRange(0,2.0/τ,40);
+
+E_K = [Ek(i) for i in res];
+E_Kx = [Ekx(i) for i in res];
+E_Ky = [Eky(i) for i in res];
+E_Kz = [Ekz(i) for i in res];
+E_P = [0. for i in 1:80];
+E_P[1:40] = [Ep(i,V(tspan[t])) for (t,i) in enumerate(res[1:40])];
+E_P[41:80] = [Ep(i,zeros(Mx,My,Mz)) for (t,i) in enumerate(res[41:80])];
+#E_P = [Ep(i,V(tspan[t])) for (t,i) in enumerate(res)];
+#E_P = [Ep(i,zeros(Mx,My,Mz)) for (t,i) in enumerate(res)];
+E_I = [Ei(i) for i in res];
+
+tspan = LinRange(0,4.0,80)
+
+P = Plots.plot(tspan,E_K,lw=1.5,label=L"E_K",size=(700,400))
+Plots.plot!(tspan,E_Kx,lw=1.5,label=L"E_{kx}",alpha=0.4)
+Plots.plot!(tspan,E_Ky,lw=1.5,label=L"E_{ky}",alpha=0.4)
+Plots.plot!(tspan,E_Kz,lw=1.5,label=L"E_{kz}",alpha=0.4)
+Plots.plot!(tspan,E_P,lw=1.5,label=L"E_p")
+Plots.plot!(tspan,E_I,lw=1.5,label=L"E_i")
+Plots.plot!(tspan,(E_K .+ E_P .+ E_I),label=L"E_T")
+
+vline!([tspan[40],tspan[60]],linestyle=:dash,alpha=0.5,label = false,c = :black)
+xlabel!(L"t",labelfontsize=15)
+
+Plots.savefig(P,"E.svg")
+
+Plots.plot(abs.(res_turb[end][:,128,128]))
+
+y = Array(y)
+Volume1(res_turb,40)
+
+E_T = E_K .+ E_P .+ E_I; # Total energy 
+dE = zeros(length(tspan) - 1); # dE/dt from energy functions
+dV = zeros(length(tspan) - 1);
+dt = tspan[2] - tspan[1]
+
+for i in 2:length(tspan)
+    dE[i - 1] = (E_T[i] - E_T[i - 1]) / dt
+    dV[i - 1] = sum(z .* abs2.(res_turb[:,:,:,i - 1]))
+    dV[i - 1] *= Shake_Grad*ω_shake*cos(ω_shake * tspan[i - 1])
+end
+
+Plots.plot(dE,label = L"dU/dt",lw = 2,alpha = 0.8)
+Plots.plot!(dV, label = L"\left< \partial V / \partial t \right>", lw = 2, alpha = 0.8)
+
+
+function kdensity(k,psi::Psi{3})  
+    @unpack ψ,X,K = psi; 
+	C = auto_correlate(ψ,X,K)
+    return sinc_reduce(k,X...,C)
+end
+
+nkplots = []
+
+for i in 1:40
+    k = log10range(0.1,20,100);
+    ψ = res_turb[:,:,:,i];
+    ψ ./= sqrt(number(ψ));
+
+    X = map(Array,(x,reshape(y,My),reshape(z,Mz)));
+    K = map(Array,(kx,reshape(ky,My),reshape(kz,Mz)));
+
+    psi = Psi(ψ,X,K);
+    @time nk = kdensity(k,psi)
+    push!(nkplots,nk)
+end
+
+for i in 1:40
+    P = Plots.plot(k,nkplots[i] ./ k.^2,axis=:log,ylims=(1e-2,1e3))
+    vline!([2π/Lz,2π/Lx,2π/Ly])
+    display(P)
+end
+Plots.plot!(k,nkplots[40] ./ k.^2,axis=:log)
+
+Plots.plot!(x->.5e0*x^-2.3)
+vline!([2π/Lz,2π/hypot(dx,dx,dx)])
+
+
+kplots = []
+nplots = []
+
+for i in [1,2,5,10,20,40]
+    ψ = res_turb[:,:,:,i]; 
+    ψ /= sqrt(number(ψ)); 
+    k, nk = n(ψ,minbin=0.2);
+    push!(kplots,k)
+    push!(nplots,nk)
+end
+
+dk = diff(kplots[6])
+size(nplots[6])
+sum(nplots[6][1:end-1] .* dk) 
+
+dk2 = diff(k)
+sum(nk[1:end-20] .* dk2[1:end-19]) / π
+
+
+Plots.plot!(kplots[6][3:end],kplots[6][3:end].^0 .* nplots[6][3:end] .* 1.3e-4,axis=:log,xlabel=L"\xi k",label = " n(k,t = 5.0)",alpha=0.7,legend=:bottomleft,xlims = (0.4,12))
+Plots.plot!(x->.5e0*x^-3) 
+ylims!(1e-3,1e6)
+
+
+for i in 2:6
+    display(Plots.plot!(kplots[i][3:end],nplots[i][3:end],axis=:log,xlabel=L"\xi k",ylabel = "k^2.2 n(k,t = $(τ*tspan[i])))",alpha=0.4,legend=false,xlims = (0.4,12)))
+end
+#Plots.plot!(kplots[6][3:end],nplots[6][3:end],axis=:log,xlabel=L"\xi k",label = L"n(k,t = 5)",alpha=0.7)
+hline!([2e2])
+Plots.plot!(x->1.5e2*x^-2)
+
+vline!([k[80]])
 
 
 
@@ -868,4 +1178,34 @@ begin # Box Trap Potential
         V_0[i,j,k] = hypot(l[1],l[2],l[3])
     end
     V_0 = cu(V_0)
+end;
+
+x̃(x) = L/π * sin((x - L/2)*π / L)
+f(x) = tanh((x̃(x)^2 - (L_trap/3)^2) / (2*s^2))
+U(x,y,z) = A_V * min(1,(1.5 + 0.5*(f(x) + f(y) + f(z))))
+
+newtrap(x,y,z) = U(x - L/2, y - L/2, z - L/2)
+
+L = Lx
+L_trap = 0.9*L
+s = 1.5
+
+V_0 = [newtrap(i,j,k) for i in x, j in x, k in x];
+Plots.plot(x,V_0[64,64,:])#,xlims=(-25,-15),ylims=(-1,10))
+
+if Vbox
+    V_0 = zeros(Mx,My,Mz)
+    #Vboundary(x) = A_V*cos(x/λ)^n_V
+    #λ = L_V/acos(0.01^(1/n_V))
+
+    for i in 1:Mx, j in 1:My, k in 1:Mz
+        if (abs(x[i]) >= 0.5*Lx) || (abs(y[j]) >= 0.5*Ly) || (abs(z[k]) >= 0.5*Lz) # V = A_V at edges
+        
+            lx = max(0,abs(x[i]) - 0.5*Lx) # Finding the distance from the centre in each direction, 
+            ly = max(0,abs(y[j]) - 0.5*Ly) # discarding if small
+            lz = max(0,abs(z[k]) - 0.5*Lz)
+        
+            V_0[i,j,k] = 0.01*hypot(lx^2,ly^2,lz^2)
+        end
+    end
 end;
