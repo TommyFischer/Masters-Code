@@ -159,7 +159,7 @@ for i in 1:9
     display(Plots.plot!(k,nplots[i*10].*k.^-2,axis=:log,ylims=(1e-6,1e4),label = grads[i],alpha=alpha[i],c = :blue))
 end
 
-eefunction save_func(res)
+function save_func(res)
     return res
 end
 
