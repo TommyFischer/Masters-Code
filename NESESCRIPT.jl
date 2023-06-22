@@ -1,20 +1,8 @@
-using PlotlyJS,
-    Plots.PlotMeasures,
-    QuantumFluidSpectra,
-    #SparseArrays,
-    #StaticArrays,
-    LinearAlgebra,
+using LinearAlgebra,
     DifferentialEquations,
     FFTW,
-    LaTeXStrings,
-    Plots,
-    #WAV,
     JLD2,
-    #Makie, 
-    #GLMakie,
-    #CodecZlib,
     BenchmarkTools,
-    #RecursiveArrayTools,
     CUDA,
     Adapt,
     DrWatson
@@ -69,7 +57,7 @@ function save_func(res,d)
 end
 
 GSparams = Dict(
-    "title" => "GS $M, $L"
+    "title" => "GS $M, $L",
     "ψ" => ψ_rand,
     "γ" => [1],
     "tf" => [20],
@@ -86,3 +74,4 @@ for (i,d) in enumerate(GSparams)
     save_func(res,d)
     println(d["title"])
 end
+
