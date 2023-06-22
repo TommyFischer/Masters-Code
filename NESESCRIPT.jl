@@ -88,12 +88,12 @@ println("All done baby")
 #------------------------------- Creating Turbulence ------------------------------
 
 function save_func(res)
-    wsave("/nesi/nobackup/uoo03837/results" * savename(d,"jld2"),Dict("res" => res))
+    wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),Dict("res" => res))
     #return res
 end
 
 Shake_params = Dict(
-    "title" => "Turb $M, $L"
+    "title" => "Turb $M, $L",
     "ψ" => ψ_GS,
     "γ" => [0],
     "tf" => [4.0/τ],
