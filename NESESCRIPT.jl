@@ -57,7 +57,7 @@ println("Arrays Defined")
 #------------------------------- Finding Ground State ------------------------------
 
 function save_func(res,d)
-    #wsave("/home/fisto108/Masters-Code/results/" * savename(d,"jld2"),Dict("res" => res))
+    wsave("/home/fisto108/Masters-Code/results/" * savename(d,"jld2"),Dict("res" => res))
     #push!(SOLS_GS,res)  
 end
 
