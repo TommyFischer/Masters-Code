@@ -57,7 +57,7 @@ println("Arrays Defined")
 #------------------------------- Finding Ground State ------------------------------
 
 function save_func(res,d)
-    wsave("/results/" * savename(d,"jld2"),Dict("res" => res))
+    wsave("/home/fisto108/Masters-Code/results/" * savename(d,"jld2"),Dict("res" => res))
     #push!(SOLS_GS,res)  
 end
 
@@ -72,7 +72,7 @@ GSparams = Dict(
 SOLS_GS = []
 
 for (i,d) in enumerate(GSparams)
-    println("sim $i / $(length(GSparams))")
+    println("GS sim $i / $(length(GSparams))")
     @unpack ψ, γ, tf, Nt = d
     res = []
     GPU_Solve!(res,GPE!,ψ_rand,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
