@@ -26,12 +26,12 @@ g = 4π*ħ^2*a_s/m
 τ = ħ/μ
 
 const L = (25,25,25)     # Condensate size
-const M = (100,100,100)  # System Grid
+const M = (256,256,256)  # System Grid
 
 A_V = 15    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)
 L_V = 5    # No. of healing lengths for V to drop from A_V to 0.01A_V 
-L_P = 5    # Amount of padding outside trap (for expansion)
+L_P = 15    # Amount of padding outside trap (for expansion)
 
 L_T = L .+ 2*(L_P + L_V)  # Total grid size
 use_cuda = CUDA.functional()
@@ -57,7 +57,7 @@ println("Arrays Defined")
 #------------------------------- Finding Ground State ------------------------------
 
 function save_func(res,d)
-    wsave("/home/fisto108/Masters-Code/results/" * savename(d,"jld2"),Dict("res" => res))
+    #wsave("/home/fisto108/Masters-Code/results/" * savename(d,"jld2"),Dict("res" => res))
     #push!(SOLS_GS,res)  
 end
 
