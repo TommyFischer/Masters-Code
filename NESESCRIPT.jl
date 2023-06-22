@@ -7,9 +7,10 @@ using LinearAlgebra,
     Adapt,
     DrWatson
 
+println("Packages loaded")
 include("V5.jl")
 
-@quickactivate "Watson" # <- project name                 
+#@quickactivate "Watson" # <- project name                 
 
 #------------------------------- Constants + Parameters -----------------------------
 
@@ -36,6 +37,8 @@ L_T = L .+ 2*(L_P + L_V)  # Total grid size
 use_cuda = CUDA.functional()
 numtype = Float32
 
+println("Parameters Defined")
+
 #------------------------------- Making Arrays and potentials ----------------------
 
 X,K,k2 = MakeArrays(L_T,M);
@@ -49,10 +52,12 @@ V_0 = BoxTrap(X,L,M,L_V,A_V,n_V) |> cu;
 const Pf = prod(@. dX / sqrt(2π)) * plan_fft(copy(ψ_rand));
 const Pi! = prod(@. M * dK / sqrt(2π)) * plan_ifft!(copy(ψ_rand));
 
+println("Arrays Defined")
+
 #------------------------------- Finding Ground State ------------------------------
 
 function save_func(res,d)
-    wsave(datadir("simulations",savename(d,"jld2")),Dict("res" => res))
+    wsave("/results/" * savename(d,"jld2"),Dict("res" => res))
     #push!(SOLS_GS,res)  
 end
 
@@ -74,4 +79,6 @@ for (i,d) in enumerate(GSparams)
     save_func(res,d)
     println(d["title"])
 end
+
+println("All done baby")
 
