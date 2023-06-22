@@ -72,12 +72,13 @@ GSparams = Dict(
 SOLS_GS = []
 
 for (i,d) in enumerate(GSparams)
+    tstart = time()
     println("GS sim $i / $(length(GSparams))")
     @unpack ψ, γ, tf, Nt = d
     res = []
     GPU_Solve!(res,GPE!,ψ_rand,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
     save_func(res,d)
-    println(d["title"])
+    println(time() - tstart)
 end
 
 println("All done baby")
