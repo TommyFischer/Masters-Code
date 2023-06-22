@@ -88,14 +88,6 @@ for (i,d) in enumerate(GSparams)
 end
 
 ψ_GS = SOLS_GS[end][end];
-Plots.heatmap(abs2.(ψ_GS)[:,50,:],aspectratio=1)
-
-load_GS = collect_results(datadir("simulations"))
-
-GS = load_GS[!,1]
-typeof(GS)
-
-Plots.heatmap(abs2.(GS[1][5])[:,50,:])
 
 #------------------------------- Creating Turbulence ------------------------------
 

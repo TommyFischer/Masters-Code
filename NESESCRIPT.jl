@@ -25,7 +25,7 @@ g = 4π*ħ^2*a_s/m
 ψ0 = sqrt(μ/g) #sqrt(N/ξ^3) 
 τ = ħ/μ
 
-const L = (25,25,25)     # Condensate size
+const L = (40,30,20)     # Condensate size
 const M = (256,256,256)  # System Grid
 
 A_V = 15    # Trap height
@@ -57,23 +57,25 @@ println("Arrays Defined")
 #------------------------------- Finding Ground State ------------------------------
 
 function save_func(res,d)
-    wsave("/home/fisto108/Masters-Code/results/" * savename(d,"jld2"),Dict("res" => res))
-    #push!(SOLS_GS,res)  
-end
+    wsave("/nesi/nobackup/uoo03837/results" * savename(d,"jld2"),Dict("res" => res))
+    #push!(SOLS_GS,res) 
+    global ψ_GS = res[end] |> cu
+end;
 
 GSparams = Dict(
     "title" => "GS $M, $L",
     "ψ" => ψ_rand,
     "γ" => [1],
     "tf" => [20],
-    "Nt" => 5
+    "Nt" => 20
 ) |> dict_list;
 
-SOLS_GS = []
+#SOLS_GS = []
 
 for (i,d) in enumerate(GSparams)
     tstart = time()
     println("GS sim $i / $(length(GSparams))")
+
     @unpack ψ, γ, tf, Nt = d
     res = []
     GPU_Solve!(res,GPE!,ψ_rand,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
@@ -83,3 +85,36 @@ end
 
 println("All done baby")
 
+#------------------------------- Creating Turbulence ------------------------------
+
+function save_func(res)
+    wsave("/nesi/nobackup/uoo03837/results" * savename(d,"jld2"),Dict("res" => res))
+    #return res
+end
+
+Shake_params = Dict(
+    "title" => "Turb $M, $L"
+    "ψ" => ψ_GS,
+    "γ" => [0],
+    "tf" => [4.0/τ],
+    "Nt" => 100,
+    "Shake_Grad" => [0.01, 0.02, 0.03, 0.04, 0.06, 0.08, 0.1, 0.2]
+) |> dict_list;
+
+SOLS_TURB = []
+
+for (i,d) in enumerate(Shake_params)
+    tstart = time()
+    println("sim $i / $(length(Shake_params))")
+
+    @unpack ψ, γ, tf, Nt, Shake_Grad = d
+    
+    global shakegrid = Shake_Grad * Array(X[3]) .* ones(M) |> complex |> cu;  
+    global ω_shake = 2π * 0.03055      
+    global V(t) = sin(ω_shake*t)*shakegrid
+
+    res = []
+    GPU_Solve!(res,NDVPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
+    save_func(res,d)
+    println(time() - tstart)
+end
