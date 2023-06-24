@@ -111,7 +111,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     tprev = time()                                  # Timer for tracking progress
         
     prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]),γ)   
-    solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_start = false, save_everystep = false, save_end = false,abstol=abstol,reltol=reltol,alg=alg)
+    solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
 function MakeArrays(L_T, M)
