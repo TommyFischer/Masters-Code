@@ -70,7 +70,7 @@ GSparams = Dict(
     "Nt" => 20
 ) |> dict_list;
 
-#SOLS_GS = []
+#CUDA.memory_status()
 
 for (i,d) in enumerate(GSparams)
     tstart = time()
@@ -89,6 +89,7 @@ println("All done baby")
 
 function save_func(res)
     wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),Dict("res" => res))
+    #push!(SOLS_TURB,res)
     #return res
 end
 
@@ -98,10 +99,11 @@ Shake_params = Dict(
     "γ" => [0],
     "tf" => [4.0/τ],
     "Nt" => 100,
-    "Shake_Grad" => [0.02, 0.03, 0.04, 0.06, 0.08, 0.1, 0.2]
+    "Shake_Grad" => [0.03, 0.04, 0.06, 0.08, 0.1, 0.2]
 ) |> dict_list;
 
-SOLS_TURB = []
+#SOLS_TURB = []
+#using Plots
 
 for (i,d) in enumerate(Shake_params)
     tstart = time()
@@ -114,7 +116,10 @@ for (i,d) in enumerate(Shake_params)
     global V(t) = sin(ω_shake*t)*shakegrid
 
     res = []
-    GPU_Solve!(res,NDVPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
+    GPU_Solve!(res,NDVPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=true)
     save_func(res,d)
     println(time() - tstart)
 end
+
+
+
