@@ -56,14 +56,11 @@ println("Arrays Defined")
 
 #------------------------------- Finding Ground State ------------------------------
 
+wsave("/nesi/nobackup/uoo03837/results/Arrays_" * savename(d,"jld2"),"X" => Array.(X))#, "K" => Array.(K), "dX" => dX, "dK" => dK, "V" => Array(V_0))
+
 function save_func(res,d)
     wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),
-    Dict("res" => res,
-        "X" => Array.(X),
-        "K" => Array.(K),
-        "dX" => dX,
-        "dK" => dK,
-        "V" => Array(V_0)))
+    Dict("res" => res))
     #push!(SOLS_GS,res) 
     global ψ_GS = res[end] |> cu
 end;
