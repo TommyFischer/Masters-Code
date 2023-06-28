@@ -58,7 +58,12 @@ println("Arrays Defined")
 
 function save_func(res,d)
     wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),
-    Dict("res" => res))
+    Dict("res" => res,
+        "X" => Array.(X),
+        "K" => Array.(K),
+        "dX" => dX,
+        "dK" => dK,
+        "V" => Array(V_0)))
     #push!(SOLS_GS,res) 
     global ψ_GS = res[end] |> cu
 end;
@@ -70,8 +75,6 @@ GSparams = Dict(
     "tf" => [20],
     "Nt" => 20
 ) |> dict_list;
-
-wsave("/nesi/nobackup/uoo03837/results/Arrays_" * savename(GSparams[1],"jld2"),Dict("X" => Array.(X)))#, "K" => Array.(K), "dX" => dX, "dK" => dK, "V" => Array(V_0))
 
 #CUDA.memory_status()
 
