@@ -71,7 +71,7 @@ GSparams = Dict(
     "Nt" => 20
 ) |> dict_list;
 
-wsave("/nesi/nobackup/uoo03837/results/Arrays_" * savename(GSparams[1],"jld2"),"X" => Array.(X))#, "K" => Array.(K), "dX" => dX, "dK" => dK, "V" => Array(V_0))
+wsave("/nesi/nobackup/uoo03837/results/Arrays_" * savename(GSparams[1],"jld2"),Dict("X" => Array.(X)))#, "K" => Array.(K), "dX" => dX, "dK" => dK, "V" => Array(V_0))
 
 #CUDA.memory_status()
 
