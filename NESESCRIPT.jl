@@ -56,8 +56,6 @@ println("Arrays Defined")
 
 #------------------------------- Finding Ground State ------------------------------
 
-wsave("/nesi/nobackup/uoo03837/results/Arrays_" * savename(d,"jld2"),"X" => Array.(X))#, "K" => Array.(K), "dX" => dX, "dK" => dK, "V" => Array(V_0))
-
 function save_func(res,d)
     wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),
     Dict("res" => res))
@@ -72,6 +70,8 @@ GSparams = Dict(
     "tf" => [20],
     "Nt" => 20
 ) |> dict_list;
+
+wsave("/nesi/nobackup/uoo03837/results/Arrays_" * savename(GSparams[1],"jld2"),"X" => Array.(X))#, "K" => Array.(K), "dX" => dX, "dK" => dK, "V" => Array(V_0))
 
 #CUDA.memory_status()
 
