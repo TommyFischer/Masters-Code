@@ -117,7 +117,7 @@ for (i,d) in enumerate(Shake_params)
 
     @unpack ψ, γ, tf, Nt, Shake_Grad = d
     
-    global shakegrid = Shake_Grad * Array(X[3]) .* ones(M) |> complex |> cu;  
+    global shakegrid = Shake_Grad * reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex |> cu;  
     global ω_shake = 2π * 0.03055      
     global V(t) = sin(ω_shake*t)*shakegrid
 
