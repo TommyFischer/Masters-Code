@@ -102,6 +102,6 @@ for (i,d) in enumerate(Shake_params)
     global V(t) = sin(ω_shake*t)*shakegrid
 
     res = []
-    GPU_Solve!(res,Escape_GPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=true)
+    GPU_Solve!(res,Escape_GPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
     save_func(res,d)
 end
