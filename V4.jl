@@ -425,7 +425,6 @@ begin # Adjustable Parameters and constants
     ψ0 = sqrt(μ/g) #sqrt(N/ξ^3) 
     τ = ħ/μ
 
-<<<<<<< HEAD
     Lx = 30 #*sqrt(2)/ω_x
     Ly = 25 #*sqrt(2)/ω_y
     Lz = 20 #6*sqrt(2)/ω_z
@@ -439,7 +438,6 @@ begin # Adjustable Parameters and constants
     L_V = 10    # No. of healing lengths for V to drop from A_V to 0.01A_V 
     L_P = 15     # Amount of padding outside trap (for expansion)
 
-=======
     Lx = 20#6*sqrt(2)/ω_x
     Ly = 20 #6*sqrt(2)/ω_y
     Lz = 20 #6*sqrt(2)/ω_z
@@ -452,21 +450,17 @@ begin # Adjustable Parameters and constants
     n_V = 24    # Trap Power (pretty much always 24)
     L_V = 8    # No. of healing lengths for V to drop from A_V to 0.01A_V 
     L_P = 8     # Amount of padding outside trap (for expansion)
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
     use_cuda = CUDA.functional()
 end
 
 begin # Arrays
 
-<<<<<<< HEAD
     x = LinRange(-Lx/2 - (L_P + L_V),Lx/2 + (L_P + L_V),Mx + 1)[2:end] |> collect
     y = LinRange(-Ly/2 - (L_P + L_V),Ly/2 + (L_P + L_V),My + 1)[2:end]' |> collect
     z = LinRange(-Lz/2 - (L_P + L_V),Lz/2 + (L_P + L_V),Mz + 1)[2:end]
-=======
     x = LinRange(-Lx/2 - (L_P + L_V),Lx/2 + (L_P + L_V),Mx) |> collect
     y = LinRange(-Ly/2 - (L_P + L_V),Ly/2 + (L_P + L_V),My)' |> collect
     z = LinRange(-Lz/2 - (L_P + L_V),Lz/2 + (L_P + L_V),Mz)
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
     z = reshape(z,(1,1,Mz)) |> collect
 
     dx = x[2] - x[1]
@@ -500,11 +494,8 @@ if Vbox
         #if (abs(x[i]) > 0.5*Lx + L_V + L_P - 4) || (abs(y[j]) > 0.5*Ly + L_V + L_P - 4) || (abs(z[k]) > 0.5*Lz + L_V + L_P - 4) # V = A_V at edges
         #    V_0[i,j,k] = A_V #+ (max(0,abs(x[i]) - (0.5*Lx + L_V + L_P - 4))^4 + max(0,abs(y[j]) - (0.5*Ly + L_V + L_P - 4))^4 + max(0,abs(z[k]) - (0.5*Lz + L_V + L_P - 4))^4)
         if (abs(x[i]) > 0.5*Lx + L_V) || (abs(y[j]) > 0.5*Ly + L_V) || (abs(z[k]) > 0.5*Lz + L_V) # V = A_V at edges
-<<<<<<< HEAD
             V_0[i,j,k] = A_V #+ 0.5*(max(0,abs(x[i]) - (0.5*Lx + L_V))^2 + max(0,abs(y[j]) - (0.5*Ly + L_V))^2 + max(0,abs(z[k]) - (0.5*Lz + L_V))^2)
-=======
             V_0[i,j,k] = A_V #+ 0.5*(max(0,abs(x[i]) - (0.5*Lx + L_V)) + max(0,abs(y[j]) - (0.5*Ly + L_V)) + max(0,abs(z[k]) - (0.5*Lz + L_V)))
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
         else
             lx = L_V + π*λ/4 - max(0.0,abs(x[i]) - (0.5*Lx - π*λ/4)) # Finding the distance from the centre in each direction, 
             ly = L_V + π*λ/4 - max(0.0,abs(y[j]) - (0.5*Ly - π*λ/4)) # discarding if small
@@ -543,32 +534,26 @@ if Vharm
     ψ_gauss = [exp(-0.5*(ω_x*i^2 + ω_y*j^2 + ω_z*k^2)) for i in x, j in reshape(y,My), k in reshape(z,Mz)]  #.|> ComplexF32;
 end;
 
-<<<<<<< HEAD
 Plots.heatmap(x,reshape(y,My),(V_0[:,:,128]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
 Plots.heatmap(x,reshape(z,Mz),(V_0[:,64,:]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"))
 
 Plots.plot(x,V_0[:,128,128],xlabel = L"x",lw=2,ylabel=L"V/A_V",label = false)
-=======
 Plots.heatmap(x,reshape(y,My),(V_0[:,:,32]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"y/\xi"))
 Plots.heatmap(x,reshape(z,Mz),(V_0[:,32,:]'),aspectratio=1,clims=(0,1.2*A_V),xlabel=(L"x/\xi"),ylabel=(L"z/\xi"))
 
 Plots.plot(x,V_0[:,32,32],xlabel = L"x",lw=2,ylabel=L"V/A_V",label = false)
 #xlims!(-0.5*Lx - L_V - 1, -0.5*Lx - L_V + 1)
 #ylims!(58,62)
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
 vline!([-0.5*Lx,0.5*Lx],alpha = 0.8,label = L"±0.5*Lx")
 vline!([-0.5*Lx - L_V,0.5*Lx + L_V],alpha = 0.8,label = L"±(0.5Lx + L_V)")
 vline!([-0.5*Lx + λ*π/4, 0.5*Lx - λ*π/4])
 
-<<<<<<< HEAD
 #ψ_TF = [max(0,1 - hypot(i,j,k)^2/R_tf^2) for i in x, j in x, k in x] |> complex;
 ψ_rand = (rand(Mx,My,Mz) + im*rand(Mx,My,Mz));
 #ψ_ones = ones(Mx,My,Mz) |> complex;   
-=======
 ψ_TF = 1/sqrt(N)*[max(0,1-V_0[i,j,k]) for i in 1:Mx, j in 1:My, k in 1:Mz] |> complex;
 ψ_rand = (rand(Mx,My,Mz) + im*rand(Mx,My,Mz));
 ψ_ones = ones(Mx,My,Mz) |> complex;
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
 
 if use_cuda # Transforming arrays
     if type == "F64"
@@ -601,7 +586,6 @@ plot(rand(10,11),layout = l)
 
 #-------------------------- Finding Ground State -----------------------------------------
 
-<<<<<<< HEAD
 γ = 1
 tspan = LinRange(0.0,5,20); 
 res_GS = []
@@ -610,7 +594,6 @@ CUDA.memory_status()
 
 Norm = [number(i) for i in res_GS];
 Plots.plot(Norm,ylims=(0,2*Norm[end]))
-=======
 tees = [50]
 con(u, t, integrator) = t ∈ tees
 function affect!(integrator)
@@ -633,14 +616,12 @@ end;
 size(sol)
 res = Array(sol);
 ψ_GS = res[:,:,:,end]; #sol[:,:,:,end];
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
 
 Plots.heatmap(x,reshape(y,My),abs2.(res_GS[5][:,:,128]'),clims=(0,1),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"y/\xi"),right_margin=8mm,cbar=false)
 xlims!(-40,40)
 vline!([-0.5*Lx,0.5*Lx],label = L"± 0.5Lx",width=2,alpha=0.3)
 hline!([-0.5*Ly,0.5*Ly],label = L"± 0.5 Ly",width=2,alpha=0.3)
 
-<<<<<<< HEAD
 Plots.heatmap(x,reshape(z,Mz),abs.(res_GS[20][:,128,:]'),clims=(0,1),aspectratio=1,xlabel=(L"x/\xi"),ylabel=(L"z/\xi"),right_margin=8mm,cbar=false)
 xlims!(-40,40)
 vline!([-0.5*Lx,0.5*Lx],label = L"± 0.5 Lx",width=2,alpha=0.3)
@@ -670,7 +651,6 @@ if use_cuda
     else
         println("Invalid Type!")
     end
-=======
 Norm = [number(res[:,:,:,i]) for i in 1:5];
 Plots.plot(Norm,ylims=(0,15*Norm[end]))
 
@@ -709,7 +689,6 @@ begin
 
     prob = ODEProblem(NDVPE!,ψ_noise,(tspan[1],tspan[end]))    
     @time sol2 = solve(prob,saveat=tspan,reltol=1e-5)
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
 end;
 
 γ = 0
@@ -720,7 +699,6 @@ GPU_Solve!(res_turb,NDVPE!,ψ_GS,tspan,reltol=1e-5,abstol = 1e-8, plot_progress=
 GPU_Solve!(res_turb,NDVPE!,cu(res_turb[end]),tspan2,reltol=1e-5,abstol = 1e-8, plot_progress=true, print_progress=true,alg=Tsit5());
 CUDA.memory_status()
 
-<<<<<<< HEAD
 length(res_turb)
 deleteat!(res_relax,33)
 
@@ -752,7 +730,6 @@ Plots.plot(x,abs2.(res_turb[40][64,:,64]),ylims=(0,1),ylabel ="|ψ(x,y = -Ly, z 
 Plots.heatmap(abs.(res_turb[40][:,:,50])*1e0,aspectratio=1,clims=(0,1))
 
 ψ_turb = res_turb[end][:,:,:];
-=======
 res1 = Array(sol2);
 tvec = Array(sol2.t);
 
@@ -808,7 +785,6 @@ end
 #Plots.savefig(P,"Energy")
 
 #-------------------------- Relaxation ---------------------------------------------------
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
 
 if use_cuda
     if type == "F64"
@@ -1143,6 +1119,8 @@ begin # Plots
     vline!([k_dx], label = false,linestyle=:dash,alpha=0.5,c=:black)
 end
 
+plot(k,nk,axis=:log)
+
 # density of slice through z = 0
 ψz = ComplexF64.(res_relax[:,:,100,end]);
 ψz ./= sqrt(number(ψz));
@@ -1289,8 +1267,6 @@ function smax(args,α)
     return sum(x -> x*exp(α*x),args)/sum(x -> exp(α*x),args)
 end
 
-<<<<<<< HEAD
-=======
 
 
 
@@ -1306,7 +1282,6 @@ function smax(args,α)
     return sum(x -> x*exp(α*x),args)/sum(x -> exp(α*x),args)
 end
 
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
 begin
     xxx = -2:0.01:2
     α = 3
@@ -1342,7 +1317,6 @@ begin # Box Trap Potential
     end
     V_0 = cu(V_0)
 end;
-<<<<<<< HEAD
 
 x̃(x) = L/π * sin((x - L/2)*π / L)
 f(x) = tanh((x̃(x)^2 - (L_trap/3)^2) / (2*s^2))
@@ -1373,5 +1347,3 @@ if Vbox
         end
     end
 end;
-=======
->>>>>>> 6bbcbb83070f5916eca488ded602e1af7490cc33
