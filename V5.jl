@@ -256,7 +256,7 @@ function extractinfo(sol)
     ay = @. sqrt(ay2*λy^2)
     az = @. sqrt(az2*λz^2)
 
-    res = [i.x[1] for i in sol]
+    res = [Array(i.x[1]) for i in sol]
 
     return res,λx,λy,λz,σx,σy,σz,ax,ay,az
 end
@@ -287,7 +287,7 @@ end
 function firstOrder!(dϕ,ϕ,dσ,λ,i)  
     mul!(dϕ,PfArray[i],ϕ)
     @. dϕ *= im*k[i]
-    dσ[i] = λ[i]^(-2) * sum(@. abs2($PiArray[i]*dϕ))
+    dσ[i] = λ[i]^(-2) * sum(abs2.(PiArray[i]*dϕ))
 end
 
 function spec_expansion_opt!(du,u,p,t)
