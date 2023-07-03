@@ -10,10 +10,25 @@ y = X[2]'
 z = reshape(X[3],(1,1,length(X[3])))
 
 kx = K[1]
-ky = K[2]'
+ky = K[2]' 
 kz = reshape(K[3],(1,1,length(K[3])))
 
 dr = prod(dX)
+
+dx = dX[1]
+dy = dX[2]
+dz = dX[3]
+
+dkx = dK[1]
+dky = dK[2]
+dkz = dK[3]
+
+M = (256,256,256)
+Mx = M[1]
+My = M[2]
+Mz = M[3]
+
+ψ_rand = randn(M) .+ im*randn(M) .|> abs |> complex .|> ComplexF32;
 
 begin
     ψ_0 = res[end]
@@ -29,9 +44,9 @@ begin
         V_0 = V_0 |> cu
     end
 
-    xdV = x.*ifft(im*kx.*fft(V_0)) .|> real
-    ydV = y.*ifft(im*ky.*fft(V_0)) .|> real
-    zdV = z.*ifft(im*kz.*fft(V_0)) .|> real
+    xdV = @. x*$ifft(im*kx.*$fft(V_0)) |> real
+    ydV = @. y*$ifft(im*ky.*$fft(V_0)) |> real
+    zdV = @. z*$ifft(im*kz.*$fft(V_0)) |> real
 
     if use_cuda
         xdV = xdV |> cu
@@ -41,7 +56,7 @@ begin
 
 end;
 
-tspan = LinRange(0,50,10);
+tspan = LinRange(0,20,10);
 res_expand = []; 
 GPU_Solve!(res_expand,spec_expansion_opt!,ϕ_initial,tspan,0,alg=Tsit5(),plot_progress=false);
 

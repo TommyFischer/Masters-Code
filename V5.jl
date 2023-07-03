@@ -265,9 +265,9 @@ function CurrentDensity(ψ)
     ϕ = fft(ψ)
     ϕim = fft(conj.(ψ))
     
-    σx = x.*(ψ.*ifft(im*kx.*ϕim) - conj(ψ).*ifft(im*kx.*ϕ)) |> sum
-    σy = y.*(ψ.*ifft(im*ky.*ϕim) - conj(ψ).*ifft(im*ky.*ϕ)) |> sum
-    σz = z.*(ψ.*ifft(im*kz.*ϕim) - conj(ψ).*ifft(im*kz.*ϕ)) |> sum
+    σx = sum(@. x*(ψ*$ifft(im*kx*ϕim) - conj(ψ)*$ifft(im*kx*ϕ)))
+    σy = sum(@. y*(ψ*$ifft(im*ky*ϕim) - conj(ψ)*$ifft(im*ky*ϕ)))
+    σz = sum(@. z*(ψ*$ifft(im*kz*ϕim) - conj(ψ)*$ifft(im*kz*ϕ)))
 
     return [σx,σy,σz]
 end
@@ -286,8 +286,8 @@ end
 
 function firstOrder!(dϕ,ϕ,dσ,λ,i)  
     mul!(dϕ,PfArray[i],ϕ)
-    dϕ .*= im*k[i]
-    dσ[i] = λ[i]^(-2) * sum(abs2.(PiArray[i]*dϕ))
+    @. dϕ *= im*k[i]
+    dσ[i] = λ[i]^(-2) * sum(@. abs2($PiArray[i]*dϕ))
 end
 
 function spec_expansion_opt!(du,u,p,t)
@@ -314,7 +314,7 @@ function spec_expansion_opt!(du,u,p,t)
     # dϕ/dt
     
     kfunc2!(dϕ,ϕ,λ) # Kinetic Term
-    dϕ .= -im*(0.5.*dϕ .+ (V_0 .+ (Na/λ̄³)*abs2.(ϕ) .+ 0.5*ρ2(λ,dσ)).*ϕ)
+    dϕ .= @. -im*(0.5*dϕ + (V_0 + (Na/λ̄³)*abs2(ϕ) + 0.5*$ρ2(λ,dσ))*ϕ)
     
     du.x[1] .= dϕ
     du.x[2][4:6] .= dσ
