@@ -6,11 +6,11 @@ include("V5.jl")
 
 x = X[1]
 y = X[2]'
-z = reshape(X[3]),(1,1,length(X[3]))
+z = reshape(X[3],(1,1,length(X[3])))
 
 kx = K[1]
 ky = K[2]'
-kz = reshape(K[3]),(1,1,length(K[3]))
+kz = reshape(K[3],(1,1,length(K[3])))
 
 dr = prod(dX)
 
