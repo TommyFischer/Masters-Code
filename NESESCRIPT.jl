@@ -57,7 +57,7 @@ println("Arrays Defined")
 #------------------------------- Finding Ground State ------------------------------
 
 function save_func(res,d)
-    wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),
+    wsave("/nesi/nobackup/uoo03837/results2/" * savename(d,"jld2"),
     Dict("res" => res,
         "X" => Array.(X),
         "K" => Array.(K),
@@ -93,8 +93,8 @@ println("All done baby")
 
 #------------------------------- Creating Turbulence ------------------------------
 
-function save_func(res)
-    wsave("/nesi/nobackup/uoo03837/results/" * savename(d,"jld2"),Dict("res" => res))
+function save_func(res,d)
+    wsave("/nesi/nobackup/uoo03837/results2/" * savename(d,"jld2"),Dict("res" => res))
     #push!(SOLS_TURB,res)
     #return res
 end
@@ -105,7 +105,7 @@ Shake_params = Dict(
     "γ" => [0],
     "tf" => [4.0/τ],
     "Nt" => 100,
-    "Shake_Grad" => [0.03, 0.04, 0.06, 0.08, 0.1, 0.2]
+    "Shake_Grad" => [0.02]
 ) |> dict_list;
 
 #SOLS_TURB = []
