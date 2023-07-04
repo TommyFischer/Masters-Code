@@ -24,9 +24,9 @@ g = 4π*ħ^2*a_s/m
 const L = (40,30,20)     # Condensate size
 const M = (256,256,256)  # System Grid
 
-A_V = 15    # Trap height
+A_V = 30    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)
-L_V = 5    # No. of healing lengths for V to drop from A_V to 0.01A_V 
+L_V = 5     # No. of healing lengths for V to drop from A_V to 0.01A_V 
 L_P = 15    # Amount of padding outside trap (for expansion)
 
 L_T = L .+ 2*(L_P + L_V)  # Total grid size
@@ -79,19 +79,22 @@ Shake_params = Dict(
     "title" => "EscapeTurb $M, $L",
     "ψ" => ψ_GS,
     "γ" => [0],
-    "tf" => [4.0/τ],
-    "Nt" => 10,
-    "Shake_Grad" => [0.04]
+    "tf" => [6.0/τ],
+    "Nt" => 100,
+    "Shake_Grad" => [0.1]
 ) |> dict_list;   
 
 function save_func(res,d)
-    wsave("home/fisto108/" * savename(d,"jld2"),
+    wsave("/nesi/nobackup/uoo03837/results2/" * savename(d,"jld2"),
     Dict("res" => res,
         "X" => Array.(X),
         "K" => Array.(K),
         "dX" => dX,
         "dK" => dK,
-        "V" => Array(V_0)))
+        "V" => Array(V_0),
+        "M" => M,
+        "L" => L
+    ))
 end;
 
 for (i,d) in enumerate(Shake_params)
@@ -103,5 +106,6 @@ for (i,d) in enumerate(Shake_params)
 
     res = []
     GPU_Solve!(res,Escape_GPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
+    #push!(TURB_RES,res)
     save_func(res,d)
 end
