@@ -81,7 +81,7 @@ Shake_params = Dict(
     "title" => "EscapeTurb $M, $L",
     "ψ" => ψ_GS,
     "γ" => [0],
-    "tf" => [3.0],
+    "tf" => [3.0/τ],
     "Nt" => 100,
     "Shake_Grad" => [0.15]
 ) |> dict_list;   
@@ -118,7 +118,7 @@ end
     "title" => "Relax $M, $L",
     "ψ" => ψ_turb,
     "γ" => [0],
-    "tf" => [2.0],
+    "tf" => [2.0/τ],
     "Nt" => 100,
 ) |> dict_list;   
 
