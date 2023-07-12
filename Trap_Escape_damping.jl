@@ -22,7 +22,7 @@ g = 4π*ħ^2*a_s/m
 τ = ħ/μ
 
 const L = (40,30,20)     # Condensate size
-const M = (300,300,300)  # System Grid
+const M = (30,30,30)  # System Grid
 
 A_V = 30    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)
@@ -65,7 +65,7 @@ end
 
     #------------------------------- Creating Turbulence ------------------------------
 
-δ = 5
+δ = 3
 V_D = 2.5
 
 V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])] |> cu;
@@ -81,9 +81,9 @@ Shake_params = Dict(
     "title" => "EscapeTurb $M, $L",
     "ψ" => ψ_GS,
     "γ" => [0],
-    "tf" => [3.0/τ],
+    "tf" => [6.0/τ],
     "Nt" => 100,
-    "Shake_Grad" => [0.15]
+    "Shake_Grad" => [0.015]
 ) |> dict_list;   
 
 function save_func(res,d)
@@ -97,7 +97,7 @@ function save_func(res,d)
         "M" => M,
         "L" => L
     ))
-    global ψ_turb = res[end] |> cu
+    #global ψ_turb = res[end] |> cu
 end;
 
 for (i,d) in enumerate(Shake_params)
@@ -109,18 +109,20 @@ for (i,d) in enumerate(Shake_params)
 
     res = []
     GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
-    save_func(res,d)
+    #save_func(res,d)
+    #global shakesol = res
+    #global ψ_turb = res[end] |> cu
 end
 
     #------------------------------- Relaxation ------------------------------
 
-    Relax_params = Dict(
-    "title" => "Relax $M, $L",
-    "ψ" => ψ_turb,
-    "γ" => [0],
-    "tf" => [2.0/τ],
-    "Nt" => 100,
-) |> dict_list;   
+    #Relax_params = Dict(
+    #"title" => "Relax $M, $L",
+    #"ψ" => ψ_turb,
+    #"γ" => [0],
+    #"tf" => [2.0/τ],
+    #"Nt" => 100,
+#) |> dict_list;   
 
     function save_func(res,d)
         wsave("/nesi/nobackup/uoo03837/results3/" * savename(d,"jld2"),
@@ -143,11 +145,12 @@ end
         @. dψ = -im*(0.5*dψ + (V_0 + V_damp + abs2(ψ) - 1)*ψ)
     end
 
-    for (i,d) in enumerate(Relax_params)
-        @unpack ψ, γ, tf, Nt = d
-            
-        res = []
-        GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
-        save_func(res,d)
-    end
+    #for (i,d) in enumerate(Relax_params)
+    #    @unpack ψ, γ, tf, Nt = d
+    #        
+    #    res = []
+    #    GPU_Solve!(res,Escape_GPE!,ψ,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
+    #    save_func(res,d)
+    #end
+
 
