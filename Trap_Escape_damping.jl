@@ -83,7 +83,7 @@ Shake_params = Dict(
     "γ" => [0],
     "tf" => [6.0/τ],
     "Nt" => 100,
-    "Shake_Grad" => [0.015]
+    "Shake_Grad" => [0.015,0.4]
 ) |> dict_list;   
 
 function save_func(res,d)
@@ -109,7 +109,7 @@ for (i,d) in enumerate(Shake_params)
 
     res = []
     GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
-    #save_func(res,d)
+    save_func(res,d)
     #global shakesol = res
     #global ψ_turb = res[end] |> cu
 end
