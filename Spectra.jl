@@ -292,7 +292,7 @@ push!(nkdata,k)
 
 for i in times
     psi = Psi(res[i],Tuple(X),Tuple(K))
-    @time push!(nkdata,kdensity(k,psi))
+    @time push!(nkdata,kdensity2(k,psi))
 end
 
 @save "/home/fisto108/nkdata015.jld2" nkdata
@@ -303,9 +303,9 @@ EQdata = []
 
 for i in times
     psi = Psi(res[i],Tuple(X),Tuple(K))
-    @time push!(Eidata,incompressible_spectrum(k,psi))
-    @time push!(Ecdata,compressible_spectrum(k,psi))
-    @time push!(EQdata,qpressure_spectrum(k,psi))
+    @time push!(Eidata,incompressible_spectrum2(k,psi))
+    @time push!(Ecdata,compressible_spectrum2(k,psi))
+    @time push!(EQdata,qpressure_spectrum2(k,psi))
 end
 
 spectra015 = [k, Eidata, Ecdata, EQdata]
@@ -318,9 +318,9 @@ QPD_data = []
 
 for i in times
     psi = Psi(res[i],Tuple(X),Tuple(K))    
-    @time push!(ID_data,incompressible_density(k,psi))
-    @time push!(CD_data,compressible_density(k,psi))
-    @time push!(QPD_data,qpressure_density(k,psi))
+    @time push!(ID_data,incompressible_density2(k,psi))
+    @time push!(CD_data,compressible_density2(k,psi))
+    @time push!(QPD_data,qpressure_density2(k,psi))
 end
 
 density015 = [k, ID_data, CD_data, QPD_data]
