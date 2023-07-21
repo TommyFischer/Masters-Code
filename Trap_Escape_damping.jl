@@ -110,7 +110,7 @@ for (i,d) in enumerate(Shake_params)
     res = []
     GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
     save_func(res,d)
-    println("save")
+    println("sublime")
     #global shakesol = res
     #global ψ_turb = res[end] |> cu
 end
