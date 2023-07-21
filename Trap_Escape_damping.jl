@@ -36,8 +36,8 @@ numtype = Float32
     #------------------------------- Making Arrays and potentials ----------------------
 
 X,K,k2 = MakeArrays(L_T,M);
-dX = L_T ./ M  #map(x -> diff(x)[1],X) # Ask Ashton about this
-dK = @. 2π / (dX*M)
+dX = map(x -> diff(x)[1],X)  #L_T ./ M 
+dK = map(x -> diff(x)[1],K) #@. 2π / (dX*M)
 ksum = Array(K[1]) .+ reshape(Array(K[2]),(1,M[2])) .+ reshape(Array(K[3]),(1,1,M[3]));
 
 V_0 = BoxTrap(X,L,M,L_V,A_V,n_V) |> cu;
@@ -83,7 +83,7 @@ Shake_params = Dict(
     "γ" => [0],
     "tf" => [6.0/τ],
     "Nt" => 100,
-    "Shake_Grad" => [0.015,0.4]
+    "Shake_Grad" => [0.03,0.05]
 ) |> dict_list;   
 
 function save_func(res,d)
@@ -110,6 +110,7 @@ for (i,d) in enumerate(Shake_params)
     res = []
     GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
     save_func(res,d)
+    println("save")
     #global shakesol = res
     #global ψ_turb = res[end] |> cu
 end
