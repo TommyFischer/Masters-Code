@@ -1,7 +1,7 @@
 using JLD2, CUDA, FFTW, DifferentialEquations, LinearAlgebra, DrWatson
 
 use_cuda = CUDA.functional()
-include("V5.jl")
+include("Masters-Code/V5.jl")
 
 @load "/home/fisto108/Nt=10_Shake_Grad=0.04_tf=524.0_title=EscapeTurb (256, 256, 256), (40, 30, 20)_γ=0.jld2"
 
@@ -58,7 +58,7 @@ end;
 
 tspan = LinRange(0,20,10);
 res_expand = []; 
-GPU_Solve!(res_expand,spec_expansion_opt!,ϕ_initial,tspan,0,alg=Tsit5(),plot_progress=false);
+GPU_Solve!(res_expand,spec_expansion_opt!,ϕ_initial,tspan,0,alg=Tsit5(),plot_progress=true);
 
 res,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(res_expand);
 

@@ -22,7 +22,7 @@ g = 4π*ħ^2*a_s/m
 τ = ħ/μ
 
 const L = (40,30,20)     # Condensate size
-const M = (300,300,300)  # System Grid
+const M = (30,30,30)  # System Grid
 
 A_V = 30    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)
@@ -35,12 +35,12 @@ numtype = Float32
 
     #------------------------------- Making Arrays and potentials ----------------------
 
-X,K,k2 = MakeArrays(L_T,M);
-dX = map(x -> diff(x)[1],Array.(X))  #L_T ./ M 
-dK = map(x -> diff(x)[1],Array.(K)) #@. 2π / (dX*M)
-ksum = Array(K[1]) .+ reshape(Array(K[2]),(1,M[2])) .+ reshape(Array(K[3]),(1,1,M[3]));
+const X,K,k2 = MakeArrays(L_T,M);
+const dX = map(x -> diff(x)[1],Array.(X))  #L_T ./ M 
+const dK = map(x -> diff(x)[1],Array.(K)) #@. 2π / (dX*M)
+const ksum = Array(K[1]) .+ reshape(Array(K[2]),(1,M[2])) .+ reshape(Array(K[3]),(1,1,M[3]));
 
-V_0 = BoxTrap(X,L,M,L_V,A_V,n_V) |> cu;
+const V_0 = BoxTrap(X,L,M,L_V,A_V,n_V) |> cu;
 ψ_rand = randn(M) .+ im*randn(M) .|> abs |> complex |> cu;
 
 const Pf = prod(@. dX / sqrt(2π)) * plan_fft(copy(ψ_rand));
@@ -59,7 +59,7 @@ GSparams = Dict(
 for (i,d) in enumerate(GSparams)
     @unpack ψ, γ, tf, Nt = d
     res = []
-    GPU_Solve!(res,GPE!,ψ_rand,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
+    @time GPU_Solve!(res,GPE!,ψ_rand,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
     global ψ_GS = res[end] |> cu
 end
 
@@ -68,7 +68,7 @@ end
 δ = 3
 V_D = 2.5
 
-V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])] |> cu;
+const V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])] |> cu;
 
 function Escape_VPE!(dψ,ψ,var,t)
     #GC.gc([full=false])
@@ -81,9 +81,9 @@ Shake_params = Dict(
     "title" => "EscapeTurb $M, $L",
     "ψ" => ψ_GS,
     "γ" => [0],
-    "tf" => [6.0/τ],
+    "tf" => [6.0],#/τ],
     "Nt" => 100,
-    "Shake_Grad" => [0.03,0.05]
+    "Shake_Grad" => [0.03]#,0.05]
 ) |> dict_list;   
 
 function save_func(res,d)
@@ -108,8 +108,8 @@ for (i,d) in enumerate(Shake_params)
     global V(t) = sin(ω_shake*t)*shakegrid
 
     res = []
-    GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
-    save_func(res,d)
+    @time GPU_Solve!(res,Escape_VPE!,ψ_GS,LinRange(0,tf,Nt),γ,alg=Tsit5(),plot_progress=false)
+    #save_func(res,d)
     println("sublime")
     #global shakesol = res
     #global ψ_turb = res[end] |> cu

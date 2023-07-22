@@ -13,6 +13,15 @@ begin
         K::NTuple{D}
     end
 
+    function gradient(psi::Psi{3})
+        @unpack ψ,K = psi; kx,ky,kz = K 
+        ϕ = fft(ψ)
+        ψx = ifft(im*kx.*ϕ)
+        ψy = ifft(im*ky'.*ϕ)
+        ψz = ifft(im*reshape(kz,1,1,length(kz)).*ϕ)
+        return ψx,ψy,ψz
+    end
+
     function log10range(a,b,n)
         @assert a>0
         x = LinRange(log10(a),log10(b),n)
@@ -281,10 +290,12 @@ end
 
 using Plots, JLD2, Parameters, VortexDistributions, FFTW, Tullio
 
+using QuantumFluidSpectra
+
 @load "Desktop/Nt=100_Shake_Grad=0.1_tf=786.0_title=EscapeTurb (256, 256, 256), (40, 30, 20)_γ=0.jld2"
 
 @fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
-k = log10range(0.1,30,20)
+k = log10range(0.1,30,300)
 times = [1,2,3,4,5,10,15,20,40,60,80,100]
 
 nkdata = []
@@ -292,7 +303,7 @@ push!(nkdata,k)
 
 for i in times
     psi = Psi(res[i],Tuple(X),Tuple(K))
-    @time push!(nkdata,kdensity2(k,psi))
+    @time push!(nkdata,kdensity_2(k,psi))
 end
 
 @save "/home/fisto108/nkdata015.jld2" nkdata
@@ -303,9 +314,9 @@ EQdata = []
 
 for i in times
     psi = Psi(res[i],Tuple(X),Tuple(K))
-    @time push!(Eidata,incompressible_spectrum2(k,psi))
-    @time push!(Ecdata,compressible_spectrum2(k,psi))
-    @time push!(EQdata,qpressure_spectrum2(k,psi))
+    @time push!(Eidata,incompressible_spectrum_2(k,psi))
+    @time push!(Ecdata,compressible_spectrum_2(k,psi))
+    @time push!(EQdata,qpressure_spectrum_2(k,psi))
 end
 
 spectra015 = [k, Eidata, Ecdata, EQdata]
