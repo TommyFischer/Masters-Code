@@ -36,8 +36,8 @@ numtype = Float32
     #------------------------------- Making Arrays and potentials ----------------------
 
 X,K,k2 = MakeArrays(L_T,M);
-dX = map(x -> diff(x)[1],X)  #L_T ./ M 
-dK = map(x -> diff(x)[1],K) #@. 2π / (dX*M)
+dX = map(x -> diff(x)[1],Array.(X))  #L_T ./ M 
+dK = map(x -> diff(x)[1],Array.(K)) #@. 2π / (dX*M)
 ksum = Array(K[1]) .+ reshape(Array(K[2]),(1,M[2])) .+ reshape(Array(K[3]),(1,1,M[3]));
 
 V_0 = BoxTrap(X,L,M,L_V,A_V,n_V) |> cu;
