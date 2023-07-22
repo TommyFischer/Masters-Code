@@ -22,7 +22,7 @@ g = 4π*ħ^2*a_s/m
 τ = ħ/μ
 
 const L = (40,30,20)     # Condensate size
-const M = (30,30,30)  # System Grid
+const M = (300,300,300)  # System Grid
 
 A_V = 30    # Trap height
 n_V = 24    # Trap Power (pretty much always 24)
@@ -81,7 +81,7 @@ Shake_params = Dict(
     "title" => "EscapeTurb $M, $L",
     "ψ" => ψ_GS,
     "γ" => [0],
-    "tf" => [6.0],#/τ],
+    "tf" => [5.0],#/τ],
     "Nt" => 100,
     "Shake_Grad" => [0.03]#,0.05]
 ) |> dict_list;   
