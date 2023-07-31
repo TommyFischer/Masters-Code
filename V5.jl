@@ -62,7 +62,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
 
         i += 1
 
-        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
+        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
             push!(savearray,Array(integrator.u))
         else
             push!(savearray,ArrayPartition(Array(integrator.u.x[1]),Array(integrator.u.x[2])))
@@ -100,7 +100,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
         tprev = time()
     end
 
-    if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
+    if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
         push!(savearray,Array(ψ))
     else
         push!(savearray,ψ)
@@ -113,6 +113,8 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]),γ)   
     solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
+
+
 
 function MakeArrays(L_T, M)
     X = []
