@@ -114,8 +114,6 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
-
-
 function MakeArrays(L_T, M)
     X = []
     K = []
@@ -187,7 +185,7 @@ function tsteps!(savearray,EQ!, ψ, tspan, reltol, abstol,alg) # Find the tsteps
     end
         
     prob = ODEProblem(EOM!,ψ,(tspan[1],tspan[end]))   
-    solve(prob, save_start = false, save_everystep = false, save_end = false,abstol=abstol,reltol=reltol,alg=alg)
+    solve(prob, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
 
