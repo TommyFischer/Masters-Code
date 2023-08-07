@@ -62,7 +62,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
 
         i += 1
 
-        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
+        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
             push!(savearray,Array(integrator.u))
         else
             push!(savearray,ArrayPartition(Array(integrator.u.x[1]),Array(integrator.u.x[2])))
@@ -100,7 +100,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
         tprev = time()
     end
 
-    if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
+    if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
         push!(savearray,Array(ψ))
     else
         push!(savearray,ψ)
@@ -185,7 +185,7 @@ function tsteps!(savearray,EQ!, ψ, tspan, reltol, abstol,alg) # Find the tsteps
     end
         
     prob = ODEProblem(EOM!,ψ,(tspan[1],tspan[end]))   
-    solve(prob, save_start = false, save_everystep = false, save_end = false,abstol=abstol,reltol=reltol,alg=alg)
+    solve(prob, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
 
