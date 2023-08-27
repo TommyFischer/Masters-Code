@@ -114,7 +114,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
-function MakeArrays(L_T, M)
+function MakeArrays(L_T, M; use_cuda = use_cuda)
     X = []
     K = []
 
@@ -143,7 +143,7 @@ function MakeArrays(L_T, M)
     return X,K,k2
 end
 
-function BoxTrap(X,L,M,L_V,A_V,n_V);
+function BoxTrap(X,L,M,L_V,A_V,n_V; use_cuda = use_cuda);
     V_0 = zeros(M)
     Vboundary(x) = A_V*cos(x/λ)^n_V
     λ = L_V/acos(0.01^(1/n_V))
@@ -404,6 +404,16 @@ function E_Int(sol) # Interaction Energy over time
     end
     return E_Int
 end
+
+
+
+
+
+
+
+
+
+
 
 #----------------- Optimised Functions ---------------------#
 
