@@ -188,7 +188,6 @@ function tsteps!(savearray,EQ!, ψ, tspan, reltol, abstol,alg) # Find the tsteps
     solve(prob, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
-
 # Expansion Functions
 
 function initialise(ψ)
@@ -405,3 +404,152 @@ function E_Int(sol) # Interaction Energy over time
     end
     return E_Int
 end
+
+#----------------- Optimised Functions ---------------------#
+
+G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{Complex{Int64}, 3},t::Float64) = begin 
+    @. ϕ = -(im + γ)*Δt * (abs2(ψ) + V_static + V(t)) * ψ # Should test absorbing -(im + γ)*Δt into one gpu variable to see if there's a speedup
+end  
+
+G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{ComplexF64, 3}) = begin 
+    @. ϕ = -(im + γ)*Δt * (abs2(ψ) + V_static) * ψ # Should test absorbing -(im + γ)*Δt into one gpu variable to see if there's a speedup
+end 
+
+G!(ψ::CuArray{ComplexF64, 3},t::Float64) = begin
+    @. ψ *= -(im + γ)*Δt * (abs2(ψ) + V_static + V(t))
+end
+
+G!(ψ::CuArray{ComplexF64, 3}) = begin
+    @. ψ *= -(im + γ)*Δt * (abs2(ψ) + V_static)
+end
+ 
+D!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{ComplexF64, 3}) = begin 
+    mul!(ϕ,Pf,ψ) 
+    @. ϕ *= U  
+    Pi!*ϕ 
+end
+
+D!(ψ::CuArray{ComplexF64, 3}) = begin 
+    Pf!*ψ
+    @. ψ *= U
+    Pi!*ψ
+end
+
+function rk4ip!(ψ::CuArray{ComplexF64, 3}) 
+    ψK .= ψ             # (B.15a) 
+    D!(ψ)               # (B.15b)     
+    ψI .= ψ             # (B.15c) 
+    G!(ψK)            # (B.15d)       
+    D!(ψK)              # (B.15e)       
+    @. ψ += ψK/6        # (B.15f) 
+    @. ψK = ψK/2 + ψI   # (B.15g)
+
+    G!(ψK)            # (B.15i)      
+    @. ψ += ψK/3        # (B.15j)
+    @. ψK = ψK/2 + ψI   # (B.15k)
+    G!(ψK)            # (B.15l)       
+    @. ψ += ψK/3        # (B.15m)
+    @. ψK += ψI         # (B.15n)
+    D!(ψK)              # (B.15o)        
+    D!(ψ)               # (B.15p)
+
+    G!(ψK)            # (B.15r)        
+    @. ψ += ψK/6       # (B.15s)
+end
+
+function rk4ip!(ψ::CuArray{ComplexF64, 3}, t::Float64) 
+    ψK .= ψ             # (B.15a) 
+    D!(ψ)               # (B.15b)     
+    ψI .= ψ             # (B.15c) 
+    G!(ψK,t)            # (B.15d)       
+    D!(ψK)              # (B.15e)       
+    @. ψ += ψK/6        # (B.15f) 
+    @. ψK = ψK/2 + ψI   # (B.15g)
+
+    t += Δt/2           # (B.15h)
+    G!(ψK,t)            # (B.15i)      
+    @. ψ += ψK/3        # (B.15j)
+    @. ψK = ψK/2 + ψI   # (B.15k)
+    G!(ψK,t)            # (B.15l)       
+    @. ψ += ψK/3        # (B.15m)
+    @. ψK += ψI         # (B.15n)
+    D!(ψK)              # (B.15o)        
+    D!(ψ)               # (B.15p)
+
+    t += Δt/2           # (B.15q)
+    G!(ψK,t)            # (B.15r)        
+    @. ψ += ψK/6       # (B.15s)
+end
+
+function GroundState!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file = false) # save_to_file: if a string, does not create solution object and saves solutions to file given by string. If false creates solution object and returns it
+    tstart = time()
+
+    if save_to_file == false
+        ψs = [zero(Array(ψ)) for _ in 1:length(tsaves)]
+        ψs[1] .= Array(ψ);
+    else
+	    psi = Array(ψ)
+	    @save save_to_file*"ψ_initial" psi
+    end
+
+    t=0.
+    tsteps = @. round(Int, tsaves / Δt)
+
+    for i in 1:tsteps[end]
+        rk4ip!(ψ)
+        t += Δt
+
+        if i in tsteps
+            n = findall(x -> x == i, tsteps)[1]
+            println("Save  $(n - 1) / $(length(tsteps) - 1) at $(round(t,digits=3)). Time taken: $(time() - tstart)")
+
+            if save_to_file == false
+                ψs[n] .= Array(ψ);
+            else
+                psi = Array(ψ)
+                @save save_to_file*"ψ_t=$(round(t,digits=3))" psi
+            end
+        end
+    end
+
+   if save_to_file == false
+        return ψs
+   end
+end
+
+function Shake!(ψ::CuArray{ComplexF64, 3},tsaves)
+    tstart = time()
+
+    if save_to_file == false
+        ψs = [zero(Array(ψ)) for _ in 1:length(tsaves)]
+        ψs[1] .= Array(ψ);
+    else
+	    psi = Array(ψ)
+	    @save save_to_file*"ψ_initial" psi
+    end
+
+    t=0.
+    tsteps = @. round(Int, tsaves / Δt)
+
+    for i in 1:tsteps[end]
+        rk4ip!(ψ,t)
+        t += Δt
+
+        if i in tsteps
+            n = findall(x -> x == i, tsteps)[1]
+            println("Save  $(n - 1) / $(length(tsteps) - 1) at $(round(t,digits=3)). Time taken: $(time() - tstart)")
+
+            if save_to_file == false
+                ψs[n] .= Array(ψ);
+            else
+                psi = Array(ψ)
+                @save save_to_file*"ψ_t=$(round(t,digits=3))" psi
+            end
+        end
+    end
+    
+   if save_to_file == false
+        return ψs
+   end
+end
+
