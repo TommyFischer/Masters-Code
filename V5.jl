@@ -426,7 +426,7 @@ G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{ComplexF64, 3}) = begin
 end 
 
 G!(ψ::CuArray{ComplexF64, 3},t::Float64) = begin
-    @. ψ *= -(im + γ)*Δt * (abs2(ψ) + V_static + V(t))
+    @. ψ *= -(im + γ)*Δt * (abs2(ψ) + V_static + $V(t))
 end
 
 G!(ψ::CuArray{ComplexF64, 3}) = begin
