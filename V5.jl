@@ -418,7 +418,7 @@ end
 #----------------- Optimised Functions ---------------------#
 
 G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{Complex{Int64}, 3},t::Float64) = begin 
-    @. ϕ = -(im + γ)*Δt * (abs2(ψ) + V_static + V(t)) * ψ # Should test absorbing -(im + γ)*Δt into one gpu variable to see if there's a speedup
+    @. ϕ = -(im + γ)*Δt * (abs2(ψ) + V_static + $V(t)) * ψ # Should test absorbing -(im + γ)*Δt into one gpu variable to see if there's a speedup
 end  
 
 G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{ComplexF64, 3}) = begin 
