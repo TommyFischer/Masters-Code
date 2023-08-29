@@ -527,7 +527,7 @@ function GroundState!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file = false) #
    end
 end
 
-function Shake!(ψ::CuArray{ComplexF64, 3},tsaves)
+function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
     tstart = time()
 
     if save_to_file == false
