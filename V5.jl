@@ -553,7 +553,7 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
                 ψs[n] .= Array(ψ);
             else
                 psi = Array(ψ)
-                @save save_to_file*"ψ_t=$(round(t,digits=3))" psi
+                @save save_to_file*"ψ_t=$(round(t,digits=3)).jld2" psi
             end
         end
     end
