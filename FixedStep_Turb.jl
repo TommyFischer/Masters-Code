@@ -28,7 +28,7 @@ include("V5.jl")
 end
 
 @consts begin # Numerical Constants
-    Δt = 1e-4       # Timestep, #2.5e-5
+    Δt = 2e-4       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
     M = (512,512,512)  # System Grid
 
