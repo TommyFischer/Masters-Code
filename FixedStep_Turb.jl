@@ -28,7 +28,7 @@ include("V5.jl")
 end
 
 @consts begin # Numerical Constants
-    Δt = 2e-4       # Timestep, #2.5e-5
+    Δt = 1e-4       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
     M = (512,512,512)  # System Grid
 
@@ -89,7 +89,7 @@ for (i,d) in enumerate(GSparams)
     @unpack ψ, tf, Ns = d
     
     tsaves = LinRange(0,tf,Ns) |> collect
-    @time global res = Shake!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
+    @time global res = Shake!(ψ,[tsaves[1],tsaves[25],tsaves[end]],save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/Δt=$Δt") # Add wsave to evolve function
     #@time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
 end
 
