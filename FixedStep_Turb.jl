@@ -30,19 +30,19 @@ end
 @consts begin # Numerical Constants
     Δt = 1e-3       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
-    M = (64,64,64)  # System Grid
+    M = (64,64,64)#(480,400,320)  # System Grid
 
     A_V = 30    # Trap height
     n_V = 24    # Trap Power (pretty much always 24)
     L_V = 3     # No. of healing lengths for V to drop from A_V to 0.01A_V 
-    L_P = 6     # Amount of padding outside trap (for expansion)
+    L_P = 7     # Amount of padding outside trap (for expansion)
 
     L_T = L .+ 2*(L_P + L_V)  # Total grid size
     use_cuda = CUDA.functional()
     numtype = ComplexF64
 end
 
-ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Tests/ψ_noisyGS")["psi"])
+ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Tests/ψ_01_GS")["psi"])
 #ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
 
 begin # Arrays
@@ -73,27 +73,24 @@ const ω_shake = 2π * 0.03055 # could potentially be packaged with other consts
 const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex);  
 V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid # Test if adding a dot here improves performance
 
-#-------- Finding Ground State --------------
-
+#-------- Finding Turbulent State --------------
 
 GSparams = Dict(
     "title" => "GS $M, $L",
     "ψ" => ψ_rand,
-    "tf" => [50],
-    "Ns" => 51
+    "tf" => 8/τ,
+    "Ns" => 129
 ) |> dict_list;
-
-
 
 for (i,d) in enumerate(GSparams)
     @unpack ψ, tf, Ns = d
     
     tsaves = LinRange(0,tf,Ns) |> collect
-    @time global res = Shake!(ψ,[tsaves[1],tsaves[25],tsaves[end]],save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/Δt=$Δt") # Add wsave to evolve function
+    res = Shake!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Hamiltonian_Test") # Add wsave to evolve function
     #@time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
 end
 
-@save "/nesi/nobackup/uoo03837/ψs.jld2" res
+#@save "/nesi/nobackup/uoo03837/ψs.jld2" res
 
 exit()
 1
