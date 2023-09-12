@@ -30,12 +30,12 @@ end
 @consts begin # Numerical Constants
     Δt = 1e-3       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
-    M = (64,64,64)  # System Grid
+    M = (480,400,320)  # System Grid
 
     A_V = 30    # Trap height
     n_V = 24    # Trap Power (pretty much always 24)
     L_V = 3     # No. of healing lengths for V to drop from A_V to 0.01A_V 
-    L_P = 6     # Amount of padding outside trap (for expansion)
+    L_P = 7     # Amount of padding outside trap (for expansion)
 
     L_T = L .+ 2*(L_P + L_V)  # Total grid size
     use_cuda = CUDA.functional()
@@ -83,7 +83,7 @@ begin
             ψs[1] .= Array(ψ);
         else
             psi = Array(ψ)
-            @save save_to_file*"ψ_initial.jld2" psi
+            @save save_to_file*"ψ_t=0.0" psi
         end
 
         t=0.
@@ -149,7 +149,7 @@ for (i,d) in enumerate(GSparams)
     
     tsaves = LinRange(0,tf,Ns) |> collect
     #@time global res = Shake!(ψ,tsaves)#,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
-    @time global res = GroundState!(ψ,tsaves)#,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
+    @time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Final_Grid_GrounState/") # Add wsave to evolve function
 end
 
 #@save "/nesi/nobackup/uoo03837/ψs.jld2" res
