@@ -149,7 +149,7 @@ for (i,d) in enumerate(GSparams)
     
     tsaves = LinRange(0,tf,Ns) |> collect
     #@time global res = Shake!(ψ,tsaves)#,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
-    @time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Final_Grid_GrounState/") # Add wsave to evolve function
+    @time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Final_Grid_GroundState/") # Add wsave to evolve function
 end
 
 #@save "/nesi/nobackup/uoo03837/ψs.jld2" res
