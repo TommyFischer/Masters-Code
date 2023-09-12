@@ -30,7 +30,7 @@ end
 @consts begin # Numerical Constants
     Δt = 1e-3       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
-    M = (64,64,64)#(480,400,320)  # System Grid
+    M = (480,400,320)  # System Grid
 
     A_V = 30    # Trap height
     n_V = 24    # Trap Power (pretty much always 24)
@@ -42,8 +42,8 @@ end
     numtype = ComplexF64
 end
 
-#ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Tests/ψ_01_GS")["psi"])
-ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
+ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Tests/ψ_01_GS")["psi"])
+#ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
 
 begin # Arrays
     X,K,k2 = MakeArrays(L_T,M,use_cuda = false); # need to change V5 to allow kwarg
