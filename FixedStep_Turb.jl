@@ -42,7 +42,7 @@ end
     numtype = ComplexF64
 end
 
-ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Tests/Final_Grid_GS/ψ_01_GS")["psi"])
+ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Final_Grid_GS/ψ_01_GS")["psi"])
 #ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
 
 begin # Arrays
