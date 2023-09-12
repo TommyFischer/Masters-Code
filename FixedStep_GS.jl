@@ -28,9 +28,9 @@ include("V5.jl")
 end
 
 @consts begin # Numerical Constants
-    Δt = 1e-2       # Timestep, #2.5e-5
+    Δt = 1e-3       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
-    M = (128,128,128)  # System Grid
+    M = (64,64,64)  # System Grid
 
     A_V = 30    # Trap height
     n_V = 24    # Trap Power (pretty much always 24)
