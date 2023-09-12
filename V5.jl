@@ -535,7 +535,7 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
         ψs[1] .= Array(ψ);
     else
 	    psi = Array(ψ)
-	    @save save_to_file*"ψ_initial" psi
+	    @save save_to_file*"ψ_t=0.0" psi
     end
 
     t=0.
