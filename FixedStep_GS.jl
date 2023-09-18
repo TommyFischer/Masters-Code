@@ -30,7 +30,7 @@ end
 @consts begin # Numerical Constants
     Δt = 1e-3       # Timestep, #2.5e-5
     L = (40,30,20)     # Condensate size
-    M = (480,400,320)  # System Grid
+    M = (256,256,256)  # System Grid
 
     A_V = 30    # Trap height
     n_V = 24    # Trap Power (pretty much always 24)
@@ -68,12 +68,13 @@ const V_static = adapt(CuArray, @. V_0 - 1);#+ V_damp); # V_Trap + V_TrapDamping
 const ψI = deepcopy(ψ_rand);
 const ψK = deepcopy(ψ_rand);
 
-const Shake_Grad = 0.1 
-const ω_shake = 2π * 0.03055 # could potentially be packaged with other consts on gpu
-const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex);  
-V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid # Test if adding a dot here improves performance
+#const Shake_Grad = 0.1 
+#const ω_shake = 2π * 0.03055 # could potentially be packaged with other consts on gpu
+#const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex);  
+#V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid # Test if adding a dot here improves performance
 
 #-------- Finding Ground State --------------
+
 begin
     function GroundState!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file = false) # save_to_file: if a string, does not create solution object and saves solutions to file given by string. If false creates solution object and returns it
         tstart = time()
@@ -140,8 +141,8 @@ Var = adapt(CuArray,[-(im + γ)*Δt])
 GSparams = Dict(
     "title" => "GS $M, $L",
     "ψ" => ψ_rand,
-    "tf" => [50],
-    "Ns" => 51
+    "tf" => [20],
+    "Ns" => 11
 ) |> dict_list;
 
 for (i,d) in enumerate(GSparams)
@@ -149,10 +150,10 @@ for (i,d) in enumerate(GSparams)
     
     tsaves = LinRange(0,tf,Ns) |> collect
     #@time global res = Shake!(ψ,tsaves)#,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
-    @time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Final_Grid_GS/") # Add wsave to evolve function
+    #@time GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/256_GS/") # Add wsave to evolve function
+    @time GroundState!(ψ,tsaves,save_to_file = false) # Add wsave to evolve function
 end
 
 #@save "/nesi/nobackup/uoo03837/ψs.jld2" res
 
 #exit()
-1

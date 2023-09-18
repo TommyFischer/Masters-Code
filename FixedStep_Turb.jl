@@ -42,7 +42,8 @@ end
     numtype = ComplexF64
 end
 
-ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Final_Grid_GS/ψ_01_GS")["psi"])
+#ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Final_Grid_GS/ψ_01_GS")["psi"])
+ψ_rand = adapt(CuArray,load("/home/fisto108/ψ_01_GS")["psi"])
 #ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
 
 begin # Arrays
@@ -68,26 +69,26 @@ const V_static = adapt(CuArray, @. V_0 - 1);#+ V_damp); # V_Trap + V_TrapDamping
 const ψI = deepcopy(ψ_rand);
 const ψK = deepcopy(ψ_rand);
 
-const Shake_Grad = 0.1 
-const ω_shake = 2π * 0.03055 # could potentially be packaged with other consts on gpu
+const Shake_Grad = 0.15 
+const ω_shake = 2π * 4τ # 2π * 4 Hz in dimensionless time units
 const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex);  
 V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid # Test if adding a dot here improves performance
 
 #-------- Finding Turbulent State --------------
 
 GSparams = Dict(
-    "title" => "GS $M, $L",
+    "title" => "Doesn't matter $M, $L",
     "ψ" => ψ_rand,
-    "tf" => 8/τ,
-    "Ns" => 129
+    "tf" => 4/τ,
+    "Ns" => 69
 ) |> dict_list;
 
 for (i,d) in enumerate(GSparams)
     @unpack ψ, tf, Ns = d
     
     tsaves = LinRange(0,tf,Ns) |> collect
-    res = Shake!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Hamiltonian_Test/") # Add wsave to evolve function
-    #@time global res = GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
+    res = Shake!(ψ,tsaves,save_to_file = #"/nesi/nobackup/uoo03837/Final_res/Hamiltonian_Test/") # Add wsave to evolve function
+    #@time global res = GroundState!(ψ,tsaves ,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
 end
 
 #@save "/nesi/nobackup/uoo03837/ψs.jld2" res

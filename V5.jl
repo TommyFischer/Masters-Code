@@ -59,11 +59,18 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     condition(u, t, integrator) = t ∈ savepoints
     
     function affect!(integrator)                    # Function which saves states to CPU + makes plots / printouts if required
-
+        println("wow")
+        println(ψ.t)
+        println("hmm")
         i += 1
 
         if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
-            push!(savearray,Array(integrator.u))
+            #push!(savearray,Array(integrator.u))
+            touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+            println("Save 1")
+            psi = Array(ψ)
+            @save "/home/fisto108/Temporary_Saves/ψ_t=0.0" psi
+            rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving    
         else
             push!(savearray,ArrayPartition(Array(integrator.u.x[1]),Array(integrator.u.x[2])))
         end    
@@ -101,7 +108,12 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     end
 
     if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
-        push!(savearray,Array(ψ))
+        #push!(savearray,Array(ψ))
+        touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+        println("Save 1")
+        psi = Array(ψ)
+        #@save @save "/home/fisto108/Temporary_Saves/ψ_t=$(round(integrator.t,digits=3)).jld2" psi
+        rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
     else
         push!(savearray,ψ)
     end
@@ -111,7 +123,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     tprev = time()                                  # Timer for tracking progress
         
     prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]),γ)   
-    solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
+    solve(prob, callback=cb,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
 function MakeArrays(L_T, M; use_cuda = use_cuda)
@@ -534,8 +546,11 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
         ψs = [zero(Array(ψ)) for _ in 1:length(tsaves)]
         ψs[1] .= Array(ψ);
     else
+        touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+        println("Save 1")
 	    psi = Array(ψ)
 	    @save save_to_file*"ψ_t=0.0" psi
+        rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
     end
 
     t=0.
@@ -552,8 +567,11 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
             if save_to_file == false
                 ψs[n] .= Array(ψ);
             else
+                touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+                println("Save")        
                 psi = Array(ψ)
                 @save save_to_file*"ψ_t=$(round(t,digits=3)).jld2" psi
+                rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
             end
         end
     end
