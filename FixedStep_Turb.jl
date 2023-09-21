@@ -42,8 +42,8 @@ end
     numtype = ComplexF64
 end
 
-#ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/Final_Grid_GS/ψ_01_GS")["psi"])
-ψ_rand = adapt(CuArray,load("/home/fisto108/ψ_01_GS")["psi"])
+ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/noisetest/ψ_t=0.0")["psi"])
+#ψ_rand = adapt(CuArray,load("/home/fisto108/ψ_01_GS")["psi"])
 #ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
 
 begin # Arrays
@@ -57,9 +57,9 @@ begin # Arrays
     const Pi! = prod(@. M * dK / sqrt(2π)) * plan_ifft!(ψ_rand)
 end;
 
-δ = 3
-V_D = 2.5
-V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])]; 
+#δ = 3
+#V_D = 2.5
+#V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])]; 
 
 const γ = 0
 #const Var = adapt(tgamma + i something)
@@ -70,10 +70,10 @@ const ψI = deepcopy(ψ_rand);
 const ψK = deepcopy(ψ_rand);
 
 ## Getting Shake_Grad
-    Uvals = readdir("/home/fisto108/Uvals/")
-    const Shake_Grad = parse(Float64,Uvals[1])
-    rm("/home/fisto108/Uvals/$(Uvals[1])")
-    touch("/home/fisto108/GPUJOBS/Shake_Grad=$Shake_Grad)")
+Uvals = readdir("/home/fisto108/Uvals/")
+const Shake_Grad = parse(Float64,Uvals[1])
+rm("/home/fisto108/Uvals/$(Uvals[1])")
+touch("/home/fisto108/GPUJOBS/Shake_Grad=$Shake_Grad")
 
 const ω_shake = 2π * 4τ # 2π * 4 Hz in dimensionless time units
 const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex);  
@@ -84,7 +84,7 @@ V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid # Test if adding a dot here improv
 GSparams = Dict(
     "title" => "Doesn't matter $M, $L",
     "ψ" => ψ_rand,
-    "tf" => 4/τ,
+    "tf" => 10/τ,
     "Ns" => 129
 ) |> dict_list;
 
@@ -92,7 +92,7 @@ for (i,d) in enumerate(GSparams)
     @unpack ψ, tf, Ns = d
     
     tsaves = LinRange(0,tf,Ns) |> collect
-    Shake!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Shake_Grad=$Shake_Grad/") # Add wsave to evolve function
+    Shake!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/256HamilTest/") # Add wsave to evolve function
     #@time global res = GroundState!(ψ,tsaves ,save_to_file = "/nesi/nobackup/uoo03837/Final_res/Tests/") # Add wsave to evolve function
 end
 
