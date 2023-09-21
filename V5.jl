@@ -546,11 +546,11 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
         ψs = [zero(Array(ψ)) for _ in 1:length(tsaves)]
         ψs[1] .= Array(ψ);
     else
-        touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
-        println("Save 1")
+        #touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+        #println("Save 1")
 	    psi = Array(ψ)
 	    @save save_to_file*"ψ_t=0.0" psi
-        rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
+        #rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
     end
 
     t=0.
@@ -562,16 +562,16 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
 
         if i in tsteps
             n = findall(x -> x == i, tsteps)[1]
-            println("Save  $(n - 1) / $(length(tsteps) - 1) at $(round(t,digits=3)). Time taken: $(time() - tstart)")
+            println("Save  $(n - 1) / $(length(tsteps) - 1) at $(round(t*τ,digits=3)). Time taken: $(time() - tstart)")
 
             if save_to_file == false
                 ψs[n] .= Array(ψ);
             else
-                touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
-                println("Save")        
+                #touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+                #println("Save")        
                 psi = Array(ψ)
-                @save save_to_file*"ψ_t=$(round(t,digits=3)).jld2" psi
-                rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
+                @save save_to_file*"ψ_t=$(round(t*τ,digits=3))" psi
+                #rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
             end
         end
     end
