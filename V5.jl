@@ -549,7 +549,7 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
         #touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
         #println("Save 1")
 	    psi = Array(ψ)
-	    @save save_to_file*"ψ_t=0.0" psi
+	    @save save_to_file*"ψ_t=$(round(t*τ,digits=3))" psi
         #rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
     end
 
