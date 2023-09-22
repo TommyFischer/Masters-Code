@@ -59,11 +59,18 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     condition(u, t, integrator) = t ∈ savepoints
     
     function affect!(integrator)                    # Function which saves states to CPU + makes plots / printouts if required
-
+        println("wow")
+        println(ψ.t)
+        println("hmm")
         i += 1
 
-        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
-            push!(savearray,Array(integrator.u))
+        if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
+            #push!(savearray,Array(integrator.u))
+            touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+            println("Save 1")
+            psi = Array(ψ)
+            @save "/home/fisto108/Temporary_Saves/ψ_t=0.0" psi
+            rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving    
         else
             push!(savearray,ArrayPartition(Array(integrator.u.x[1]),Array(integrator.u.x[2])))
         end    
@@ -100,8 +107,13 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
         tprev = time()
     end
 
-    if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer}]
-        push!(savearray,Array(ψ))
+    if typeof(ψ) in [CuArray{ComplexF32, 3, CUDA.Mem.DeviceBuffer}, CuArray{ComplexF64, 3, CUDA.Mem.DeviceBuffer},Array{ComplexF32, 3},Array{ComplexF64, 3}]
+        #push!(savearray,Array(ψ))
+        touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+        println("Save 1")
+        psi = Array(ψ)
+        #@save @save "/home/fisto108/Temporary_Saves/ψ_t=$(round(integrator.t,digits=3)).jld2" psi
+        rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
     else
         push!(savearray,ψ)
     end
@@ -111,10 +123,10 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     tprev = time()                                  # Timer for tracking progress
         
     prob = ODEProblem(EQ!,ψ,(tspan[1],tspan[end]),γ)   
-    solve(prob, callback=cb, dt = 1e-3,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
+    solve(prob, callback=cb,tstops = savepoints, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
 
-function MakeArrays(L_T, M)
+function MakeArrays(L_T, M; use_cuda = use_cuda)
     X = []
     K = []
 
@@ -143,7 +155,7 @@ function MakeArrays(L_T, M)
     return X,K,k2
 end
 
-function BoxTrap(X,L,M,L_V,A_V,n_V);
+function BoxTrap(X,L,M,L_V,A_V,n_V; use_cuda = use_cuda);
     V_0 = zeros(M)
     Vboundary(x) = A_V*cos(x/λ)^n_V
     λ = L_V/acos(0.01^(1/n_V))
@@ -185,9 +197,8 @@ function tsteps!(savearray,EQ!, ψ, tspan, reltol, abstol,alg) # Find the tsteps
     end
         
     prob = ODEProblem(EOM!,ψ,(tspan[1],tspan[end]))   
-    solve(prob, save_start = false, save_everystep = false, save_end = false,abstol=abstol,reltol=reltol,alg=alg)
+    solve(prob, save_on = false,abstol=abstol,reltol=reltol,alg=alg)
 end
-
 
 # Expansion Functions
 
@@ -256,7 +267,7 @@ function extractinfo(sol)
     ay = @. sqrt(ay2*λy^2)
     az = @. sqrt(az2*λz^2)
 
-    res = [i.x[1] for i in sol]
+    res = [Array(i.x[1]) for i in sol]
 
     return res,λx,λy,λz,σx,σy,σz,ax,ay,az
 end
@@ -287,7 +298,7 @@ end
 function firstOrder!(dϕ,ϕ,dσ,λ,i)  
     mul!(dϕ,PfArray[i],ϕ)
     @. dϕ *= im*k[i]
-    dσ[i] = λ[i]^(-2) * sum(@. abs2($PiArray[i]*dϕ))
+    dσ[i] = λ[i]^(-2) * sum(abs2.(PiArray[i]*dϕ))
 end
 
 function spec_expansion_opt!(du,u,p,t)
@@ -405,3 +416,168 @@ function E_Int(sol) # Interaction Energy over time
     end
     return E_Int
 end
+
+
+
+
+
+
+
+
+
+
+
+#----------------- Optimised Functions ---------------------#
+
+G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{Complex{Int64}, 3},t::Float64) = begin 
+    @. ϕ = -(im + γ)*Δt * (abs2(ψ) + V_static + $V(t)) * ψ # Should test absorbing -(im + γ)*Δt into one gpu variable to see if there's a speedup
+end  
+
+G!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{ComplexF64, 3}) = begin 
+    @. ϕ = -(im + γ)*Δt * (abs2(ψ) + V_static) * ψ # Should test absorbing -(im + γ)*Δt into one gpu variable to see if there's a speedup
+end 
+
+G!(ψ::CuArray{ComplexF64, 3},t::Float64) = begin
+    @. ψ *= -(im + γ)*Δt * (abs2(ψ) + V_static + $V(t))
+end
+
+G!(ψ::CuArray{ComplexF64, 3}) = begin
+    @. ψ *= -(im + γ)*Δt * (abs2(ψ) + V_static)
+end
+ 
+D!(ϕ::CuArray{ComplexF64, 3},ψ::CuArray{ComplexF64, 3}) = begin 
+    mul!(ϕ,Pf,ψ) 
+    @. ϕ *= U  
+    Pi!*ϕ 
+end
+
+D!(ψ::CuArray{ComplexF64, 3}) = begin 
+    Pf!*ψ
+    @. ψ *= U
+    Pi!*ψ
+end
+
+function rk4ip!(ψ::CuArray{ComplexF64, 3}) 
+    ψK .= ψ             # (B.15a) 
+    D!(ψ)               # (B.15b)     
+    ψI .= ψ             # (B.15c) 
+    G!(ψK)            # (B.15d)       
+    D!(ψK)              # (B.15e)       
+    @. ψ += ψK/6        # (B.15f) 
+    @. ψK = ψK/2 + ψI   # (B.15g)
+
+    G!(ψK)            # (B.15i)      
+    @. ψ += ψK/3        # (B.15j)
+    @. ψK = ψK/2 + ψI   # (B.15k)
+    G!(ψK)            # (B.15l)       
+    @. ψ += ψK/3        # (B.15m)
+    @. ψK += ψI         # (B.15n)
+    D!(ψK)              # (B.15o)        
+    D!(ψ)               # (B.15p)
+
+    G!(ψK)            # (B.15r)        
+    @. ψ += ψK/6       # (B.15s)
+end
+
+function rk4ip!(ψ::CuArray{ComplexF64, 3}, t::Float64) 
+    ψK .= ψ             # (B.15a) 
+    D!(ψ)               # (B.15b)     
+    ψI .= ψ             # (B.15c) 
+    G!(ψK,t)            # (B.15d)       
+    D!(ψK)              # (B.15e)       
+    @. ψ += ψK/6        # (B.15f) 
+    @. ψK = ψK/2 + ψI   # (B.15g)
+
+    t += Δt/2           # (B.15h)
+    G!(ψK,t)            # (B.15i)      
+    @. ψ += ψK/3        # (B.15j)
+    @. ψK = ψK/2 + ψI   # (B.15k)
+    G!(ψK,t)            # (B.15l)       
+    @. ψ += ψK/3        # (B.15m)
+    @. ψK += ψI         # (B.15n)
+    D!(ψK)              # (B.15o)        
+    D!(ψ)               # (B.15p)
+
+    t += Δt/2           # (B.15q)
+    G!(ψK,t)            # (B.15r)        
+    @. ψ += ψK/6       # (B.15s)
+end
+
+function GroundState!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file = false) # save_to_file: if a string, does not create solution object and saves solutions to file given by string. If false creates solution object and returns it
+    tstart = time()
+
+    if save_to_file == false
+        ψs = [zero(Array(ψ)) for _ in 1:length(tsaves)]
+        ψs[1] .= Array(ψ);
+    else
+	    psi = Array(ψ)
+	    @save save_to_file*"ψ_initial.jld2" psi
+    end
+
+    t=0.
+    tsteps = @. round(Int, tsaves / Δt)
+
+    for i in 1:tsteps[end]
+        rk4ip!(ψ)
+        t += Δt
+
+        if i in tsteps
+            n = findall(x -> x == i, tsteps)[1]
+            println("Save  $(n - 1) / $(length(tsteps) - 1) at $(round(t,digits=3)). Time taken: $(time() - tstart)")
+
+            if save_to_file == false
+                ψs[n] .= Array(ψ);
+            else
+                psi = Array(ψ)
+                @save save_to_file*"ψ_t=$(round(t,digits=3))" psi
+            end
+        end
+    end
+
+   if save_to_file == false
+        return ψs
+   end
+end
+
+function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
+    tstart = time()
+
+    if save_to_file == false
+        ψs = [zero(Array(ψ)) for _ in 1:length(tsaves)]
+        ψs[1] .= Array(ψ);
+    else
+        #touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+        #println("Save 1")
+	    psi = Array(ψ)
+	    @save save_to_file*"ψ_t=$(round(t*τ,digits=3))" psi
+        #rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
+    end
+
+    t=0.
+    tsteps = @. round(Int, tsaves / Δt)
+
+    for i in 1:tsteps[end]
+        rk4ip!(ψ,t)
+        t += Δt
+
+        if i in tsteps
+            n = findall(x -> x == i, tsteps)[1]
+            println("Save  $(n - 1) / $(length(tsteps) - 1) at $(round(t*τ,digits=3)). Time taken: $(time() - tstart)")
+
+            if save_to_file == false
+                ψs[n] .= Array(ψ);
+            else
+                #touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
+                println("Save at t=$(t*τ)")        
+                psi = Array(ψ)
+                @save save_to_file*"ψ_t=$(round(t*τ,digits=3))" psi
+                #rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
+            end
+        end
+    end
+    
+   if save_to_file == false
+        return ψs
+   end
+end
+
