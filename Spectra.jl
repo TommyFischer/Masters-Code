@@ -1,70 +1,58 @@
-begin
+using BenchmarkTools,
+SpecialFunctions,
+PaddedViews,
+UnPack,
+TensorCast,
+Tullio,
+Parameters,
+Plots, 
+JLD2, 
+VortexDistributions, 
+FFTW,
+CUDA,
+QuantumFluidSpectra
 
-    using BenchmarkTools
-    using SpecialFunctions
-    using PaddedViews
-    using UnPack
-    using TensorCast
+import QuantumFluidSpectra.zeropad
 
-    abstract type Field end
-    struct Psi{D} <: Field
-        ψ::Array{Complex{Float32},D}
-        X::NTuple{D}
-        K::NTuple{D}
+include("/Users/fischert/Desktop/Masters-Code/V5.jl")
+
+begin # Copy-Pasted from fixedstep_turb to define X,K,V etc
+    @consts begin # Physical Constants
+        ħ = 1.05457182e-34
+        m = 87*1.66e-27 
+        a_s = 5.8e-9 
+        k_B = 1.380649e-23
+
+        μ = 1e-9 * k_B #ħ # Smaller μ, bigger norm
+        g = 4π*ħ^2*a_s/m
+        ξ = ħ/sqrt(m*μ)
+        ψ0 = sqrt(μ/g) #sqrt(N/ξ^3) 
+        τ = ħ/μ
     end
 
-    function gradient(psi::Psi{3})
-        @unpack ψ,K = psi; kx,ky,kz = K 
-        ϕ = fft(ψ)
-        ψx = ifft(im*kx.*ϕ)
-        ψy = ifft(im*ky'.*ϕ)
-        ψz = ifft(im*reshape(kz,1,1,length(kz)).*ϕ)
-        return ψx,ψy,ψz
+    @consts begin # Numerical Constants
+        Δt = 1e-3       # Timestep, #2.5e-5
+        L = (40,30,20)     # Condensate size
+        M = (256,256,256)  # System Grid
+
+        A_V = 30    # Trap height
+        n_V = 24    # Trap Power (pretty much always 24)
+        L_V = 3     # No. of healing lengths for V to drop from A_V to 0.01A_V 
+        L_P = 7     # Amount of padding outside trap (for expansion)
+
+        L_T = L .+ 2*(L_P + L_V)  # Total grid size
+        use_cuda = CUDA.functional()
+        numtype = ComplexF64
     end
 
-    function log10range(a,b,n)
-        @assert a>0
-        x = LinRange(log10(a),log10(b),n)
-        return @. 10^x
-    end
+    X,K,k2 = MakeArrays(L_T,M,use_cuda = false); # need to change V5 to allow kwarg
+    const dX = map(x -> diff(x)[1],Array.(X))  
+    const dK = map(x -> diff(x)[1],Array.(K)) 
+    V_0 = BoxTrap(X,L,M,L_V,A_V,n_V, use_cuda = false) # Same here
+end;
 
-    function zeropad(A)
-        S = size(A)
-        if any(isodd.(S))
-            error("Array dims not divisible by 2")
-        end
-        nO = 2 .* S
-        nI = S .÷ 2
-
-        outer = []
-        inner = []
-
-        for no in nO
-            push!(outer,(1:no))
-        end
-
-        for ni in nI
-            push!(inner,(ni+1:ni+2*ni))
-        end
-
-        return PaddedView(zero(eltype(A)),A,Tuple(outer),Tuple(inner)) |> collect
-    end
-
-    function fft_differentials(X,K)
-        M = length(X)
-        DX = zeros(M); DK = zeros(M)
-        for i ∈ eachindex(X)
-            DX[i],DK[i] = dfft(X[i],K[i])
-        end
-        return DX,DK
-    end
-
-    function dfft(x,k)
-        dx = x[2]-x[1]; dk = k[2]-k[1]
-        Dx = dx/sqrt(2*pi)
-        Dk = length(k)*dk/sqrt(2*pi)
-        return Dx, Dk
-    end
+begin # Custom QuantumFluidSpectra functions
+    @fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
 
     function kdensity_2(k,psi::Psi{3})  
         @unpack ψ,X,K = psi; 
@@ -78,7 +66,6 @@ begin
 
         ϕ = zeropad(ψ)
         fft!(ϕ)
-
         @. ϕ *= $prod(DX)
 
         Threads.@threads for i in eachindex(ϕ)
@@ -145,6 +132,21 @@ begin
         return sinc_reduce_2(k,X...,C)
     end
 
+    function qpressure_spectrum_2(k,psi::Psi{3})
+        @unpack ψ,X,K = psi
+        wx,wy,wz = gradient(abs.(ψ),K)
+
+        C = auto_correlate_2(wx,X,K)
+        wx = nothing
+        @. C += $auto_correlate_2(wy,X,K)
+        wy = nothing
+        @. C += $auto_correlate_2(wz,X,K)
+        wz = nothing
+        @. C *= 0.5
+
+        return sinc_reduce_2(k,X...,C)
+    end
+
     function helmholtz_incompressible(wx, wy, wz, kx, ky, kz)
         wxk = fft(wx); wyk = fft(wy); wzk = fft(wz)
         @cast kw[i,j,k] := (kx[i] * wxk[i,j,k] + ky[j] * wyk[i,j,k] + kz[k] * wzk[i,j,k])/ (kx[i]^2 + ky[j]^2 + kz[k]^2)
@@ -177,19 +179,6 @@ begin
         return wxc,wyc,wzc
     end
 
-    function velocity(psi::Psi{3})
-        @unpack ψ = psi
-        rho = abs2.(ψ)
-        ψx,ψy,ψz = gradient(psi)
-        vx = @. imag(conj(ψ)*ψx)/rho
-        vy = @. imag(conj(ψ)*ψy)/rho
-        vz = @. imag(conj(ψ)*ψz)/rho
-        @. vx[isnan(vx)] = zero(vx[1])
-        @. vy[isnan(vy)] = zero(vy[1])
-        @. vz[isnan(vz)] = zero(vz[1])
-        return vx,vy,vz
-    end
-
     function gradient(ψ,K)
         kx,ky,kz = K 
         ϕ = fft(ψ)
@@ -197,21 +186,6 @@ begin
         ψy = ifft(im*ky'.*ϕ)
         ψz = ifft(im*reshape(kz,1,1,length(kz)).*ϕ)
         return ψx,ψy,ψz
-    end
-
-    function qpressure_spectrum_2(k,psi::Psi{3})
-        @unpack ψ,X,K = psi
-        wx,wy,wz = gradient(abs.(ψ),K)
-
-        C = auto_correlate_2(wx,X,K)
-        wx = nothing
-        @. C += $auto_correlate_2(wy,X,K)
-        wy = nothing
-        @. C += $auto_correlate_2(wz,X,K)
-        wz = nothing
-        @. C *= 0.5
-
-        return sinc_reduce_2(k,X...,C)
     end
 
     function incompressible_density_2(k,psi::Psi{3})
@@ -269,7 +243,7 @@ begin
     function qpressure_density_2(k,psi::Psi{3})
         @unpack ψ,X,K = psi
         
-        wx,wy,wz = gradient(abs2.(ψ),K)
+        wx,wy,wz = gradient(abs.(ψ),K)
         
         @. wx *= exp(im*angle(ψ))
         @. wy *= exp(im*angle(ψ))
@@ -288,52 +262,79 @@ begin
 
 end
 
-using Plots, JLD2, Parameters, VortexDistributions, FFTW, Tullio
+k = log10range(0.1,40,300)
+r = LinRange(0,40,2000)
+t = round.(round.(Int, (LinRange(0,10/τ,129) |> collect) ./ 1e-3) .* (1e-3*τ), digits = 3)
 
-using QuantumFluidSpectra
+psi_strings = ["/ψ_t=$i" for i in t]
+load_address = "/Users/fischert/Desktop/"
+title = "Shake_Grad=0.2"
 
-@load "Desktop/Nt=100_Shake_Grad=0.1_tf=786.0_title=EscapeTurb (256, 256, 256), (40, 30, 20)_γ=0.jld2"
+nk = []     # Angle averaged momentum density
 
-@fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
-k = log10range(0.1,30,300)
-times = [1,2,3,4,5,10,15,20,40,60,80,100]
+Ivcs = []   # Angle averaged Incompressible velocity correlation spectra
+Cvcs = []   # Angle averaged Compressible velocity correlation spectra
+QPcs = []   # Angle averaged Quantum Pressure correlation spectra
 
-nkdata = []
-push!(nkdata,k)
+Iked = []   # Angle averaged Incompressible kinetic energy density 
+Cked = []   # Angle averaged Compressible kinetic energy density
+QPed = []   # Angle averaged Quantum Pressure energy density
 
-for i in times
-    psi = Psi(res[i],Tuple(X),Tuple(K))
-    @time push!(nkdata,kdensity_2(k,psi))
+for filename in psi_strings #### n(k)
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(nk, kdensity_2(k,ψ))
 end
 
-@save "/home/fisto108/nkdata015.jld2" nkdata
-
-Eidata = []
-Ecdata = []
-EQdata = []
-
-for i in times
-    psi = Psi(res[i],Tuple(X),Tuple(K))
-    @time push!(Eidata,incompressible_spectrum_2(k,psi))
-    @time push!(Ecdata,compressible_spectrum_2(k,psi))
-    @time push!(EQdata,qpressure_spectrum_2(k,psi))
+for filename in psi_strings #### Ivcs
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(Ivcs, incompressible_spectrum_2(k,ψ))
 end
 
-spectra015 = [k, Eidata, Ecdata, EQdata]
-@save "/home/fisto108/spectra015.jld2" spectra015
-
-
-ID_data = []
-CD_data = []
-QPD_data = []
-
-for i in times
-    psi = Psi(res[i],Tuple(X),Tuple(K))    
-    @time push!(ID_data,incompressible_density2(k,psi))
-    @time push!(CD_data,compressible_density2(k,psi))
-    @time push!(QPD_data,qpressure_density2(k,psi))
+for filename in psi_strings #### Cvcs
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(Cvcs, compressible_spectrum_2(k,ψ))
 end
 
-density015 = [k, ID_data, CD_data, QPD_data]
-@save "/home/fisto108/density015.jld2" density015
+for filename in psi_strings #### QPcs
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(QPcs, qpressure_spectrum_2(k,ψ))
+end
 
+for filename in psi_strings #### IKed
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(Iked, incompressible_density_2(k,ψ))
+end
+
+for filename in psi_strings #### Cked
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(Cked, compressible_density_2(k,ψ))
+end
+
+for filename in psi_strings #### QPed
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    ψ = Psi(psi,Tuple(X),Tuple(K))
+    @time push!(QPed, qpressure_density_2(k,ψ))
+end
+
+@save "/Users/fischert/Desktop/nk_2.jld2" nk
+@save "/Users/fischert/Desktop/Ivcs_2.jld2" Ivcs
+@save "/Users/fischert/Desktop/Cvcs_2.jld2" Cvcs
+@save "/Users/fischert/Desktop/QPcs_2.jld2" QPcs
+@save "/Users/fischert/Desktop/Iked_2.jld2" Iked
+@save "/Users/fischert/Desktop/Cked_2.jld2" Cked
+@save "/Users/fischert/Desktop/QPed_2.jld2" QPed
+
+exit()
