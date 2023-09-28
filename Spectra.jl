@@ -14,7 +14,7 @@ QuantumFluidSpectra
 
 import QuantumFluidSpectra.zeropad
 
-include("/Users/fischert/Desktop/Masters-Code/V5.jl")
+include("V5.jl")
 
 begin # Copy-Pasted from fixedstep_turb to define X,K,V etc
     @consts begin # Physical Constants
@@ -280,9 +280,9 @@ Iked = []   # Angle averaged Incompressible kinetic energy density
 Cked = []   # Angle averaged Compressible kinetic energy density
 QPed = []   # Angle averaged Quantum Pressure energy density
 
-for filename in psi_strings #### n(k)
-    psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+for filename in psi_strings
+    psi = load(load_address*filename)["psi"]
+    #heatmap(abs2.(psi[:,128,:]'),c=:lajolla,clims=(0,1.2)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(nk, kdensity_2(k,ψ))
 end
@@ -337,4 +337,13 @@ end
 @save "/Users/fischert/Desktop/Cked_2.jld2" Cked
 @save "/Users/fischert/Desktop/QPed_2.jld2" QPed
 
-exit()
+
+norm = []
+for filename in psi_strings
+    psi = load(load_address*filename)["psi"]
+    push!(norm,sum(abs2.(psi)))
+end
+
+size(norm)
+
+plot(norm,ylims=(0,1.5*norm[1]))

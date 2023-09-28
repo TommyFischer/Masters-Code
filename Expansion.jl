@@ -28,7 +28,10 @@ Mx = M[1]
 My = M[2]
 Mz = M[3]
 
-ψ_rand = randn(M) .+ im*randn(M) .|> abs |> complex .|> ComplexF32;
+ψ_rand = randn(M) .+ im*randn(M) .|> abs |> complex |> cu;
+
+const Pf = prod(@. dX / sqrt(2π)) * plan_fft(copy(ψ_rand));
+const Pi! = prod(@. M * dK / sqrt(2π)) * plan_ifft!(copy(ψ_rand));
 
 begin
     ψ_0 = res[end]
@@ -56,9 +59,9 @@ begin
 
 end;
 
-tspan = LinRange(0,20,10);
+tspan = LinRange(0,20,20);
 res_expand = []; 
-GPU_Solve!(res_expand,spec_expansion_opt!,ϕ_initial,tspan,0,alg=Tsit5(),plot_progress=true);
+GPU_Solve!(res_expand,spec_expansion_opt!,ϕ_initial,tspan,0,alg=Tsit5(),plot_progress=false,print_progress=true);
 
 res,λx,λy,λz,σx,σy,σz,ax,ay,az = extractinfo(res_expand);
 
