@@ -281,60 +281,66 @@ Cked = []   # Angle averaged Compressible kinetic energy density
 QPed = []   # Angle averaged Quantum Pressure energy density
 
 for filename in psi_strings
-    psi = load(load_address*filename)["psi"]
-    #heatmap(abs2.(psi[:,128,:]'),c=:lajolla,clims=(0,1.2)) |> display
+    psi = load(load_address*title*filename)["psi"]
+    heatmap(abs2.(psi[:,128,:]'),c=:lajolla,clims=(0,1.35)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(nk, kdensity_2(k,ψ))
 end
 
+@save "/Users/fischert/Desktop/nk_2.jld2" nk
+
 for filename in psi_strings #### Ivcs
     psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Ivcs, incompressible_spectrum_2(k,ψ))
 end
 
+@save "/Users/fischert/Desktop/Ivcs_2.jld2" Ivcs
+
 for filename in psi_strings #### Cvcs
     psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Cvcs, compressible_spectrum_2(k,ψ))
 end
 
+@save "/Users/fischert/Desktop/Cvcs_2.jld2" Cvcs
+
 for filename in psi_strings #### QPcs
     psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(QPcs, qpressure_spectrum_2(k,ψ))
 end
 
+@save "/Users/fischert/Desktop/QPcs_2.jld2" QPcs
+
 for filename in psi_strings #### IKed
     psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Iked, incompressible_density_2(k,ψ))
 end
 
+@save "/Users/fischert/Desktop/Iked_2.jld2" Iked
+
 for filename in psi_strings #### Cked
     psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Cked, compressible_density_2(k,ψ))
 end
 
+@save "/Users/fischert/Desktop/Cked_2.jld2" Cked
+
 for filename in psi_strings #### QPed
     psi = load(load_address*title*filename)["psi"]
-    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.2)) |> display
+    heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(QPed, qpressure_density_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/nk_2.jld2" nk
-@save "/Users/fischert/Desktop/Ivcs_2.jld2" Ivcs
-@save "/Users/fischert/Desktop/Cvcs_2.jld2" Cvcs
-@save "/Users/fischert/Desktop/QPcs_2.jld2" QPcs
-@save "/Users/fischert/Desktop/Iked_2.jld2" Iked
-@save "/Users/fischert/Desktop/Cked_2.jld2" Cked
 @save "/Users/fischert/Desktop/QPed_2.jld2" QPed
 
 
