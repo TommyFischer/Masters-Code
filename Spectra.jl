@@ -323,7 +323,7 @@ for filename in psi_strings #### IKed
     @time push!(Iked, incompressible_density_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/Iked_2.jld2" Iked
+@save "/Users/fischert/Desktop/Iked_2.jld2" Iked 
 
 for filename in psi_strings #### Cked
     psi = load(load_address*title*filename)["psi"]

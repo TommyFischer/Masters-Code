@@ -189,6 +189,39 @@ function BoxTrap(X,L,M,L_V,A_V,n_V; use_cuda = use_cuda);
     return V_0
 end
 
+function CylinderTrap(X,L,R,M,L_V,A_V,n_V; use_cuda = use_cuda)
+    V_0 = zeros(M)
+    Vboundary(x) = A_V*cos(x/λ)^n_V
+    λ = L_V/acos(0.01^(1/n_V))
+
+    Xarray = Array.(X)
+
+    for i in 1:M[1], j in 1:M[2], k in 1:M[3]
+        if (abs(Xarray[3][k]) > 0.5*L + L_V) || (sqrt(Xarray[1][i]^2 + Xarray[2][j]^2) > R + L_V) # V = A_V at edge
+            V_0[i,j,k] = A_V
+        else
+            lr = L_V + π*λ/4 - max(0.0,sqrt(Xarray[1][i]^2 + Xarray[2][j]^2) - (R - π*λ/4)) # Finding the distance from the centre in each direction, 
+            lz = L_V + π*λ/4 - max(0.0,abs(Xarray[3][k]) - (0.5*L - π*λ/4))                 # discarding if small
+        
+            V_0[i,j,k] = sqrt(Vboundary(lr)^2 + Vboundary(lz)^2)
+
+            if V_0[i,j,k] > A_V
+                V_0[i,j,k] = A_V
+            end
+        end
+    end
+
+    if use_cuda
+        if numtype == Float32
+            V_0 = cu(V_0)
+        elseif numtype == Float64
+            V_0 = adapt(CuArray,V_0)
+        end
+    end
+
+    return V_0
+end
+
 function tsteps!(savearray,EQ!, ψ, tspan, reltol, abstol,alg) # Find the tsteps used for a simulation without saving states
 
     function EOM!(du,u,p,t)
