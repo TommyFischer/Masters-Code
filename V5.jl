@@ -60,7 +60,7 @@ function GPU_Solve!(savearray,EQ!, ψ, tspan, γ; reltol = 1e-5, abstol = 1e-6, 
     
     function affect!(integrator)                    # Function which saves states to CPU + makes plots / printouts if required
         println("wow")
-        println(ψ.t)
+        #println(ψ.t)
         println("hmm")
         i += 1
 
@@ -243,17 +243,17 @@ function initialise(ψ)
     global ky
     global kz
 
-    global Na = number(ψ) |> Float32
+    global Na = number(ψ) |> Float64
     ϕi = ψ ./ sqrt(Na)
     
     if use_cuda
-        ϕi = cu(ϕi)
-        x = cu(x)
-        y = cu(y)
-        z = cu(z)
-        kx = cu(kx)
-        ky = cu(ky)
-        kz = cu(kz)
+        ϕi = adapt(CuArray,(ϕi))
+        x = adapt(CuArray,x)
+        y = adapt(CuArray,y)
+        z = adapt(CuArray,z)
+        kx = adapt(CuArray,kx)
+        ky = adapt(CuArray,ky)
+        kz = adapt(CuArray,kz)
     end
 
     global ax2 = dr*sum(@. x^2*abs2(ϕi))
@@ -264,15 +264,15 @@ function initialise(ψ)
     @. ϕi *= exp(-0.5*im*(σi[1]*x^2 + σi[2]*y^2 + σi[3]*z^2))
 
     if use_cuda
-        ϕi = ϕi |> cu
-        σi = σi |> cu
-        global Pfx = Float32(dx/sqrt(2π))*plan_fft(copy(ϕi),1)
+        ϕi = adapt(CuArray,ϕi)
+        σi = adapt(CuArray,σi)
+        global Pfx = Float64(dx/sqrt(2π))*plan_fft(copy(ϕi),1)
         global Pfy = Pf # Cannot do cuda fft along second dimension, have to do full transform :( 
-        global Pfz = Float32(dz/sqrt(2π))*plan_fft(copy(ϕi),3)
+        global Pfz = Float64(dz/sqrt(2π))*plan_fft(copy(ϕi),3)
 
-        global Pix! = Float32(Mx*dkx/sqrt(2π))*plan_ifft!(copy(ϕi),1)
+        global Pix! = Float64(Mx*dkx/sqrt(2π))*plan_ifft!(copy(ϕi),1)
         global Piy! = Pi!
-        global Piz! = Float32(Mz*dkz/sqrt(2π))*plan_ifft!(copy(ϕi),3)
+        global Piz! = Float64(Mz*dkz/sqrt(2π))*plan_ifft!(copy(ϕi),3)
     else
         global Pfx = dx/sqrt(2π)*plan_fft(copy(ϕi),1)
         global Pfy = dy/sqrt(2π)*plan_fft(copy(ϕi),2)
