@@ -9,9 +9,6 @@ Parameters
 
 #-------- Setup -----------
 
-#using Hwloc, CpuId
-#(cpuvendor() == :Intel && FFTW.get_provider() == "fftw") ? (FFTW.set_provider!("fftw"); exit()) : #(FFTW.forget_wisdom(); FFTW.set_num_threads(num_physical_cores()))
-
 include("V5.jl")
 
 @consts begin # Physical Constants
@@ -43,8 +40,8 @@ end
     numtype = ComplexF64
 end
 
-ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Final_res/noisetest/ψ_t=0.0")["psi"])
-ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
+ψ_rand = adapt(CuArray,load("/nesi/nobackup/uoo03837/Recreating/Navon/GS/ψ_t=130.92")["psi"])
+#ψ_rand = adapt(CuArray,randn(M) .+ im*randn(M)  .|> abs |> complex); # Initial State
 
 begin # Arrays
     X,K,k2 = MakeArrays(L_T,M,use_cuda = false); # need to change V5 to allow kwarg
@@ -57,42 +54,41 @@ begin # Arrays
     const Pi! = prod(@. M * dK / sqrt(2π)) * plan_ifft!(ψ_rand)
 end;
 
-#δ = 3
-#V_D = 2.5
-#V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])]; 
+δ = 3
+V_D = 2.5
+V_damp = -im * V_D * [(abs(i) > 0.5*L[1] + L_V + δ) || (abs(j) > 0.5*L[2] + L_V + δ) || (abs(k) > 0.5*L[3] + L_V + δ) ? 1 : 0 for i in Array(X[1]), j in Array(X[2]), k in Array(X[3])]; 
 
 const γ = 0
-#const Var = adapt(tgamma + i something)
-
 const U = adapt(CuArray,@. exp(-(im + γ)*k2*Δt/4));
-const V_static = adapt(CuArray, @. V_0 - 1);#+ V_damp); # V_Trap + V_TrapDamping - μ
+const V_static = adapt(CuArray, @. V_0 - 1 + V_damp); # V_Trap + V_TrapDamping - μ
 const ψI = deepcopy(ψ_rand);
 const ψK = deepcopy(ψ_rand);
-
-## Getting Shake_Grad
-#Uvals = readdir("/home/fisto108/Uvals/")
-#const Shake_Grad = parse(Float64,Uvals[1])
-#rm("/home/fisto108/Uvals/$(Uvals[1])")
-#touch("/home/fisto108/GPUJOBS/Shake_Grad=$Shake_Grad")
-
-#const ω_shake = 2π * 4τ # 2π * 4 Hz in dimensionless time units
-#const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) |> complex);  
-#V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid # Test if adding a dot here improves performance
+Shake_Grad = 1
+const ω_shake = 2π * 8τ # 2π * 8Hz in dimensionless time units
+const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) ./ L |> complex);  
 
 #-------- Finding Turbulent State --------------
 
-GSparams = Dict(
-    "title" => "Doesn't matter $M, $L",
-    "ψ" => ψ_rand,
-    "tf" => 0.5/τ,
-    "Ns" => 20
-) |> dict_list;
+for i in 1:20
+    noisegrid = 0.01*[ (sqrt(i^2 + j^2) < R)  && (abs(k) < 0.5*L) ? randn() + im*randn() : 0 + 0*im for i in X[1], j in X[2], k in X[3]]
+    ψ = adapt(CuArray,load("/nesi/nobackup/uoo03837/Recreating/Navon/GS/ψ_t=130.92")["psi"] .+ noisegrid)
+    shake_tsaves = LinRange(0,2/τ,20)
+    relax_tsaves = LinRange(0,1.5/τ,20)
 
-for (i,d) in enumerate(GSparams)
-    @unpack ψ, tf, Ns = d
-    
-    tsaves = LinRange(0,tf,Ns) |> collect
-    #Shake!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Final_res/256HamilTest/") # Add wsave to evolve function
-    GroundState!(ψ,tsaves,save_to_file = "/nesi/nobackup/uoo03837/Recreating/Navon/GS_")
+    global Shake_Grad = 1
+    global V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid 
+    psi = Shake!(ψ,shake_tsaves)
+    @save "/nesi/nobackup/uoo03837/Recreating/Navon/Shake_run_$i" psi
+    psi = nothing
+    GC.gc()
+
+    global Shake_Grad = 0
+    global V(t) = sin(ω_shake*t)*Shake_Grad * shakegrid 
+    psi = Shake!(ψ,relax_tsaves)
+    @save "/nesi/nobackup/uoo03837/Recreating/Navon/Relax_run_$i" psi
+    psi = nothing
+    GC.gc()
 end
+
+
 
