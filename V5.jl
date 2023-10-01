@@ -450,6 +450,35 @@ function E_Int(sol) # Interaction Energy over time
     return E_Int
 end
 
+function Volume1(res,t,X;isomax=false,opacity=0.5,surface_count=10, title = "") # 3D volume plot of solution at t
+    vals = res[:,:,:,t];
+    X, Y, Z = mgrid(X[1],X[2],X[3]);
+
+    p = PlotlyJS.volume(
+        x=X[:],
+        y=Y[:],
+        z=Z[:],
+        value=vals[:],
+        opacity=opacity,
+        isomin=0,
+        isomax=isomax,
+        surface_count=surface_count,
+        caps=attr(x_show=false, y_show=false,z_show=false),
+        colorscale=:YlOrRd,
+        reversescale = true
+        )
+
+    data = [p];
+
+    layout = Layout(title = title,
+            width = 500,
+            height = 500, 
+            scene_camera=attr(eye=attr(x=0, y=2, z=1)))
+
+    pl = PlotlyJS.plot(data,layout)
+
+end
+
 
 
 
