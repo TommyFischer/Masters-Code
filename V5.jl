@@ -8,6 +8,16 @@
 @fastmath hypot(a,b,c) = sqrt(a^2 + b^2 + c^2)
 
 # Functions for setting up and running simulations
+function bestfit(x,y; xrange = (x[1],x[end]))
+    N = length(x)
+    x̄ = sum(x) / N
+    ȳ = sum(y) / N 
+
+    m = sum([(x[i] - x̄)*(y[i] - ȳ) for i in 1:N]) / sum([(x[i] - x̄)^2 for i in 1:N])
+    c = ȳ - m*x̄
+
+    return m,c
+end
 
 function number(ψ)
     return sum(abs2.(ψ))*prod(dX)
@@ -628,10 +638,12 @@ function Shake!(ψ::CuArray{ComplexF64, 3},tsaves; save_to_file=false)
 
             if save_to_file == false
                 ψs[n] .= Array(ψ);
+                println("Save at t=$(t*τ)")        
             else
                 #touch("/home/fisto108/Temporary_Saves/000") # 000 file makes sure data isn't saved to local machine while julia is saving
                 println("Save at t=$(t*τ)")        
                 psi = Array(ψ)
+                heatmap(abs2.(psi[:,:,128]),aspectratio=1) |> display
                 @save save_to_file*"ψ_t=$(round(t*τ,digits=3))" psi
                 #rm("/home/fisto108/Temporary_Saves/000") # Get rid of 000 file once done saving
             end
