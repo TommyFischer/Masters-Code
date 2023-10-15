@@ -260,6 +260,156 @@ begin # Custom QuantumFluidSpectra functions
         return sinc_reduce_2(k,X...,C)
     end
 
+    function convolve_2(ψ1,ψ2,X,K)
+        n = length(X)
+        DX,DK = fft_differentials(X,K)
+        ϕ1 = zeropad(conj.(ψ1))
+        fft!(ϕ1)
+        @. ϕ1 *= prod(DX)
+
+        ϕ2 = zeropad(ψ2)
+        fft!(ϕ2)
+        @. ϕ2 *= prod(DX)
+        
+        @. ϕ1 *= ϕ2
+        ϕ2 = nothing
+        GC.gc()
+
+        ifft!(ϕ1)
+        @. ϕ1 *= prod(DK)*(2*pi)^(n/2)
+        return  ϕ1
+    end
+
+    function ic_density_2(k,psi::Psi{3})
+        @unpack ψ,X,K = psi 
+        wx,wy,wz = velocity(psi)
+
+        @. wx *= abs(ψ)
+        @. wy *= abs(ψ)
+        @. wz *= abs(ψ)
+    
+        Wi, Wc = helmholtz(wx,wy,wz,K...)
+        wix,wiy,wiz = Wi; wcx,wcy,wcz = Wc
+
+        wx = nothing
+        wy = nothing 
+        wz = nothing
+        GC.gc()
+
+        U = @. exp(im*angle(ψ))
+        @. wix *= im*U # restore phase factors and make u -> w fields
+        @. wiy *= im*U
+        @. wiz *= im*U   
+        @. wcx *= im*U 
+        @. wcy *= im*U
+        @. wcz *= im*U
+    
+        C = convolve(wix,wcx,X,K) 
+        GC.gc()
+        C .+= convolve(wcx,wix,X,K)
+        wix = nothing; wcx = nothing
+        GC.gc() 
+        
+        C .+= convolve(wiy,wcy,X,K) 
+        GC.gc()
+        C .+= convolve(wcy,wiy,X,K)
+        wcy = nothing; wiy = nothing
+        GC.gc()
+
+        C .+= convolve(wiz,wcz,X,K) 
+        GC.gc()
+        C .+= convolve(wcz,wiz,X,K)
+        wcz = nothing; wiz = nothing
+        GC.gc()
+
+        @. C *= 0.5 
+        
+        return sinc_reduce_2(k,X...,C)
+    end
+
+    function iq_density_2(k,psi::Psi{3})
+        @unpack ψ,X,K = psi 
+        wx,wy,wz = velocity(psi)
+
+        @. wx *= abs(ψ)
+        @. wy *= abs(ψ)
+        @. wz *= abs(ψ)
+    
+        wix,wiy,wiz = helmholtz_incompressible
+        wx,wy,wz = gradient(abs.(ψ),K)
+
+        U = @. exp(im*angle(ψ))
+        @. wix *= im*U # restore phase factors and make u -> w fields
+        @. wiy *= im*U
+        @. wiz *= im*U   
+        @. wx *= U 
+        @. wy *= U
+        @. wz *= U
+    
+        C = convolve(wix,wx,X,K) 
+        GC.gc()
+        C .+= convolve(wx,wix,X,K)
+        wix = nothing; wx = nothing
+        GC.gc() 
+        
+        C .+= convolve(wiy,wy,X,K) 
+        GC.gc()
+        C .+= convolve(wy,wiy,X,K)
+        wy = nothing; wiy = nothing
+        GC.gc()
+
+        C .+= convolve(wiz,wz,X,K) 
+        GC.gc()
+        C .+= convolve(wz,wiz,X,K)
+        wz = nothing; wiz = nothing
+        GC.gc()
+
+        @. C *= 0.5 
+        
+        return sinc_reduce_2(k,X...,C)
+    end
+
+    function cq_density_2(k,psi::Psi{3})
+        @unpack ψ,X,K = psi 
+        wx,wy,wz = velocity(psi)
+
+        @. wx *= abs(ψ)
+        @. wy *= abs(ψ)
+        @. wz *= abs(ψ)
+    
+        wcx,wcy,wcz = helmholtz_compressible
+        wx,wy,wz = gradient(abs.(ψ),K)
+
+        U = @. exp(im*angle(ψ))
+        @. wcx *= im*U # restore phase factors and make u -> w fields
+        @. wcy *= im*U
+        @. wcz *= im*U   
+        @. wx *= U 
+        @. wy *= U
+        @. wz *= U
+    
+        C = convolve(wcx,wx,X,K) 
+        GC.gc()
+        C .+= convolve(wx,wcx,X,K)
+        wcx = nothing; wx = nothing
+        GC.gc() 
+        
+        C .+= convolve(wcy,wy,X,K) 
+        GC.gc()
+        C .+= convolve(wy,wcy,X,K)
+        wy = nothing; wcy = nothing
+        GC.gc()
+
+        C .+= convolve(wcz,wz,X,K) 
+        GC.gc()
+        C .+= convolve(wz,wcz,X,K)
+        wz = nothing; wcz = nothing
+        GC.gc()
+
+        @. C *= 0.5 
+        
+        return sinc_reduce_2(k,X...,C)
+    end
 end
 
 k = log10range(0.1,40,300)
@@ -268,7 +418,7 @@ t = round.(round.(Int, (LinRange(0,10/τ,129) |> collect) ./ 1e-3) .* (1e-3*τ),
 
 psi_strings = ["/ψ_t=$i" for i in t]
 load_address = "/Users/fischert/Desktop/"
-title = "Shake_Grad=0.2"
+title = "Shake_Grad=0.005"
 
 nk = []     # Angle averaged momentum density
 
@@ -281,75 +431,89 @@ Cked = []   # Angle averaged Compressible kinetic energy density
 QPed = []   # Angle averaged Quantum Pressure energy density
 
 for filename in psi_strings
+    GC.gc()
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=:lajolla,clims=(0,1.35)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(nk, kdensity_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/nk_2.jld2" nk
+@save "/Users/fischert/Desktop/nk_005.jld2" nk
 
 for filename in psi_strings #### Ivcs
+    GC.gc()
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Ivcs, incompressible_spectrum_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/Ivcs_2.jld2" Ivcs
+@save "/Users/fischert/Desktop/Ivcs_005.jld2" Ivcs
 
 for filename in psi_strings #### Cvcs
+    GC.gc()
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Cvcs, compressible_spectrum_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/Cvcs_2.jld2" Cvcs
+@save "/Users/fischert/Desktop/Cvcs_005.jld2" Cvcs
 
 for filename in psi_strings #### QPcs
+    GC.gc()
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(QPcs, qpressure_spectrum_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/QPcs_2.jld2" QPcs
+@save "/Users/fischert/Desktop/QPcs_005.jld2" QPcs
 
 for filename in psi_strings #### IKed
+    GC.gc()
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Iked, incompressible_density_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/Iked_2.jld2" Iked 
+@save "/Users/fischert/Desktop/Iked_005.jld2" Iked 
 
 for filename in psi_strings #### Cked
+    GC.gc()
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(Cked, compressible_density_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/Cked_2.jld2" Cked
+@save "/Users/fischert/Desktop/Cked_005.jld2" Cked
 
 for filename in psi_strings #### QPed
+    
     psi = load(load_address*title*filename)["psi"]
     heatmap(abs2.(psi[:,128,:]'),c=cgrad(:lajolla,rev=true),clims=(0,1.5)) |> display
     ψ = Psi(psi,Tuple(X),Tuple(K))
     @time push!(QPed, qpressure_density_2(k,ψ))
 end
 
-@save "/Users/fischert/Desktop/QPed_2.jld2" QPed
+@save "/Users/fischert/Desktop/QPed_005.jld2" QPed
 
-
-norm = []
+xnorm = []
 for filename in psi_strings
     psi = load(load_address*filename)["psi"]
     push!(norm,sum(abs2.(psi)))
 end
 
-size(norm)
+@load "/Users/fischert/Desktop/Final Final res spectra/QPcs_2.jld2"
 
-plot(norm,ylims=(0,1.5*norm[1]))
+anim = @animate for i ∈ 1:129
+    plot(k,QPcs[i], axis = :log,ylims = (1e2,2.5e4), legend = false)
+    title!("t = $(round(t[i],digits=3))s")
+    xlabel!("kξ")
+    ylabel!("n'(k)")
+    vline!([2π])
+    vline!(2π ./ [60,50,40, 60/256, 50/256, 40/256],label="Driving and minimum Resolution lengthscales")
+end
+gif(anim, "anim_fps15.gif", fps = 6)

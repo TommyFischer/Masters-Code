@@ -69,7 +69,7 @@ const shakegrid = adapt(CuArray, reshape(Array(X[3]),(1,1,M[3])) .* ones(M) ./ L
 
 #-------- Finding Turbulent State --------------
 
-for i in 1:20
+for i in 2:10
     noisegrid = 0.01*[ (sqrt(i^2 + j^2) < R)  && (abs(k) < 0.5*L) ? randn() + im*randn() : 0 + 0*im for i in X[1], j in X[2], k in X[3]]
     ψ = adapt(CuArray,load("/nesi/nobackup/uoo03837/Recreating/Navon/GS/ψ_t=130.92")["psi"] .+ noisegrid)
     shake_tsaves = LinRange(0,2/τ,20)
